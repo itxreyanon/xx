@@ -59,7 +59,7 @@ class Helpers {
 
             // ✅ Step 5: Clear reaction
             if (autoReact) {
-                await Helpers.sleep(1000);
+                await Helpers.sleep(600);
                 await bot.sock.sendMessage(sender, {
                     react: { key: originalMsg.key, text: '' }
                 });
@@ -79,7 +79,7 @@ class Helpers {
 
         } catch (error) {
             if (autoReact) {
-                await Helpers.sleep(1500);
+                await Helpers.sleep(1000);
                 await bot.sock.sendMessage(sender, {
                     react: { key: originalMsg.key, text: '❌' }
                 });
