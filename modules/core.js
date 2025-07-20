@@ -125,7 +125,7 @@ class CoreModule {
         const start = Date.now();
         const latency = Date.now() - start;
         this.incrementCommandCount('ping');
-      return ` *Pong!* • 📡 Latency: ${latency}ms`;
+      return ` *Pong!* • ${latency}ms`;
 
     }
 
@@ -143,14 +143,21 @@ class CoreModule {
         this.incrementCommandCount('status');
         return text;
     }
-    async restart(msg, params, context) {
-        await context.bot.sendMessage(context.sender, { text: '🔄 *Restarting Bot...*\n\n⏳ Please wait...' });
-        if (this.bot.telegramBridge) {
-            await this.bot.telegramBridge.logToTelegram('🔄 Bot Restart', 'Initiated by owner');
-        }
-        setTimeout(() => process.exit(0), 1000); // Assuming PM2 or similar restarts the process
-        this.incrementCommandCount('restart');
+
+async restart(msg, params, context) {
+    this.incrementCommandCount('restart');
+
+    // Optional: log to Telegram before exit
+    if (this.bot.telegramBridge) {
+        await this.bot.telegramBridge.logToTelegram('🔄 Bot Restart', 'Restart requested by owner.');
     }
+
+    // Force exit after short delay
+    setTimeout(() => process.exit(0), 1000);
+
+    return '🔁 Restarting process...';
+}
+
 
     async toggleMode(msg, params, context) {
         const mode = params[0]?.toLowerCase();
