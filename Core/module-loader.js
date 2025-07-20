@@ -186,7 +186,7 @@ class ModuleLoader {
 
 async loadModules() {
     const systemPath = path.join(__dirname, '../modules');
-    const customPath = path.join(__dirname, '../custom_modules');
+    const customPath = path.join(__dirname, '../modules/custom_modules');
 
     await fs.ensureDir(systemPath);
     await fs.ensureDir(customPath);
