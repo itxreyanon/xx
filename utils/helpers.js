@@ -1,39 +1,63 @@
+
 const config = require('../config');
 
 class Helpers {
     static async smartErrorRespond(bot, originalMsg, options = {}) {
-        const {
-            processingText = '⏳ Processing...',
+        let {
+            processingText,
             errorText = '❌ Something went wrong.',
             actionFn = () => { throw new Error('No action provided'); },
             autoReact = config.get('features.autoReact', true),
             editMessages = config.get('features.messageEdit', true),
-            smartProcessing = config.get('features.smartProcessing', false)
+            smartProcessing = config.get('features.smartProcessing', false),
+            selfEdit = config.get('features.selfEditCommands', true)
         } = options;
 
         if (!bot?.sock?.sendMessage || !originalMsg?.key?.remoteJid) return;
 
         const sender = originalMsg.key.remoteJid;
+        const isFromSelf = originalMsg.key.fromMe === true;
+        const originalPassedText = processingText;
         let processingMsgKey = null;
 
+        // ✅ Step 1: fallback only if module didn’t provide anything
+        if (!processingText) {
+            const cmdText =
+                originalMsg?.message?.conversation ||
+                originalMsg?.message?.extendedTextMessage?.text ||
+                '.';
+            const cmdName = cmdText.trim().split(/\s+/)[0];
+            processingText = isFromSelf
+                ? '⏳ Processing...'
+                : `⏳ Running *${cmdName}*...`;
+        }
+
+        const isStructured = !!originalPassedText;
+
         try {
-            // React with ⏳
+            // ✅ Step 2: React with ⏳
             if (autoReact) {
                 await bot.sock.sendMessage(sender, {
                     react: { key: originalMsg.key, text: '⏳' }
                 });
             }
 
-            // Show "processing..." message
-            if (editMessages) {
+            // ✅ Step 3: Show "processing"
+            if (isStructured && selfEdit && isFromSelf) {
+                await bot.sock.sendMessage(sender, {
+                    text: processingText,
+                    edit: originalMsg.key
+                });
+                processingMsgKey = originalMsg.key;
+            } else if (editMessages) {
                 const processingMsg = await bot.sendMessage(sender, { text: processingText });
                 processingMsgKey = processingMsg.key;
             }
 
-            // Run command
+            // ✅ Step 4: Run command
             const result = await actionFn();
 
-            // Wait 1s then remove ⏳
+            // ✅ Step 5: Clear reaction
             if (autoReact) {
                 await Helpers.sleep(1000);
                 await bot.sock.sendMessage(sender, {
@@ -41,25 +65,19 @@ class Helpers {
                 });
             }
 
-            // Edit result or send new
-            if (processingMsgKey && result && typeof result === 'string') {
+            // ✅ Step 6: Edit result or send fresh
+            if (processingMsgKey && typeof result === 'string') {
                 await bot.sock.sendMessage(sender, {
                     text: result,
                     edit: processingMsgKey
                 });
-            } else if (processingMsgKey && !result) {
-                await bot.sock.sendMessage(sender, {
-                    text: '✅ Done!',
-                    edit: processingMsgKey
-                });
-            } else if (result && typeof result === 'string') {
+            } else if (typeof result === 'string') {
                 await bot.sendMessage(sender, { text: result });
             }
 
             return result;
 
         } catch (error) {
-            // Wait 1.5s then replace ⏳ with ❌
             if (autoReact) {
                 await Helpers.sleep(1500);
                 await bot.sock.sendMessage(sender, {
