@@ -125,7 +125,7 @@ class CoreModule {
         const start = Date.now();
         const latency = Date.now() - start;
         this.incrementCommandCount('ping');
-        return `🏓 *Pong!*\n\nLatency: ${latency}ms\n⏰ ${new Date().toLocaleTimeString()}`;
+        return `🏓 *Pong!*\n\nLatency: ${latency}ms}`;
     }
 
     async status(msg, params, context) {
@@ -145,50 +145,29 @@ class CoreModule {
 
 
 
-async restart(msg, params, context) {
-    this.incrementCommandCount('restart');
+    async restart(msg, params, context) {
+        this.incrementCommandCount('restart');
+        await Helpers.smartErrorRespond(this.bot, msg, {
+            processingText: '♻️ Restarting...',
+            actionFn: async () => {
+                fs.writeFileSync(restartFlagFile, JSON.stringify({
+                    chat: context.sender,
+                    key: msg.key
+                }));
+                const isDocker = fs.existsSync('/.dockerenv');
+                const isSystemd = !!process.env.INVOCATION_ID;
 
-    const sent = await context.bot.sendMessage(context.sender, {
-        text: '♻️ *Restarting Bot...*\n\nPlease wait a few seconds...'
-    });
+                if (!isDocker && !isSystemd) {
+                    spawn(process.argv[0], [process.argv[1]], {
+                        detached: true,
+                        stdio: 'inherit'
+                    });
+                }
 
-    // Save message details to edit after restart
-    fs.writeFileSync(restartFlagFile, JSON.stringify({
-        chat: context.sender,
-        key: sent.key
-    }));
-
-    // Detect environment
-    const node = process.argv[0];
-    const script = process.argv[1];
-    const isDocker = fs.existsSync('/.dockerenv');
-    const isSystemd = !!process.env.INVOCATION_ID;
-
-    if (!isDocker && !isSystemd) {
-        require('child_process').spawn(node, [script], {
-            detached: true,
-            stdio: 'inherit'
+                setTimeout(() => process.exit(0), 300);
+            }
         });
     }
-
-    setTimeout(() => process.exit(0), 500);
-}
-
-    async init() {
-        if (fs.existsSync(restartFlagFile)) {
-            try {
-                const { chat, key } = JSON.parse(fs.readFileSync(restartFlagFile, 'utf8'));
-                await this.bot.sendMessage(chat, {
-                    text: '✅ *Restart Complete*\n\nBot is now back online.',
-                    edit: key
-                });
-            } catch (err) {
-                console.error('⚠️ Failed to edit restart message:', err);
-            }
-            fs.unlinkSync(restartFlagFile);
-        }
-    }
-
 
     async toggleMode(msg, params, context) {
         const mode = params[0]?.toLowerCase();
@@ -287,7 +266,20 @@ async restart(msg, params, context) {
             });
         });
     }
-
+    async init() {
+        if (fs.existsSync(restartFlagFile)) {
+            try {
+                const { chat, key } = JSON.parse(fs.readFileSync(restartFlagFile, 'utf8'));
+                await this.bot.sendMessage(chat, {
+                    text: '✅ *Restart Complete*\n\nBot is now back online.',
+                    edit: key
+                });
+            } catch (err) {
+                console.error('[CORE] Failed to restore restart message:', err.message);
+            }
+            fs.unlinkSync(restartFlagFile);
+        }
+    }
     getUptime() {
         const sec = Math.floor((Date.now() - this.startTime) / 1000);
         const d = Math.floor(sec / 86400);
