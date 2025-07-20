@@ -3,6 +3,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const { exec } = require('child_process');
 const helpers = require('../utils/helpers');
+const restartFlagFile = '.restart-flag.json';
 
 class CoreModule {
     constructor(bot) {
@@ -142,7 +143,7 @@ class CoreModule {
         return text;
     }
 
-const restartFlagFile = './.restart-flag.json';
+
 
 async restart(msg, params, context) {
     this.incrementCommandCount('restart');
