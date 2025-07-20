@@ -38,8 +38,9 @@ class MessageHandler {
             try {
                 await this.processMessage(msg);
             } catch (error) {
-                logger.error('Error processing message:', error);
-            }
+    logger.error('Error processing message:', error?.stack || error?.message || error);
+}
+
         }
     }
 
