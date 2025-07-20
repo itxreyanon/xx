@@ -35,11 +35,13 @@ class MessageHandler {
         if (type !== 'notify') return;
 
         for (const msg of messages) {
-            try {
-                await this.processMessage(msg);
-            } catch (error) {
-    logger.error('Error processing message:', error?.stack || error?.message || error);
+try {
+    await this.processMessage(msg);
+} catch (error) {
+    console.error('[UNCAUGHT ERROR]', error); // Full dump
+    logger.error('Error processing message:', error?.stack || error?.message || JSON.stringify(error));
 }
+
 
         }
     }
@@ -184,7 +186,9 @@ if (!this.checkPermissions(msg, command)) {
             }
 
         } catch (error) {
-            logger.error(`❌ Command failed: ${command}`, error);
+    console.error('[COMMAND ERROR]', error); // Show full dump in console
+    logger.error(`❌ Command failed: ${command}`, error?.stack || error?.message || error);
+
 
             await this.bot.sendMessage(sender, {
                 text: `❌ Command failed: ${error.message}`
