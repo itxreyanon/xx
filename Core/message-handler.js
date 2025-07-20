@@ -6,6 +6,7 @@ class MessageHandler {
     constructor(bot) {
         this.bot = bot;
         this.commandHandlers = new Map();
+        this.messageHooks = new Map();
     }
 
     registerCommandHandler(command, handler) {
@@ -13,6 +14,23 @@ class MessageHandler {
         logger.debug(`📝 Registered command handler: ${command}`);
     }
 
+    unregisterCommandHandler(command) {
+        this.commandHandlers.delete(command.toLowerCase());
+        logger.debug(`🗑️ Unregistered command handler: ${command}`);
+    }
+
+    registerMessageHook(hookName, handler) {
+        if (!this.messageHooks.has(hookName)) {
+            this.messageHooks.set(hookName, []);
+        }
+        this.messageHooks.get(hookName).push(handler);
+        logger.debug(`🪝 Registered message hook: ${hookName}`);
+    }
+
+    unregisterMessageHook(hookName) {
+        this.messageHooks.delete(hookName);
+        logger.debug(`🗑️ Unregistered message hook: ${hookName}`);
+    }
     async handleMessages({ messages, type }) {
         if (type !== 'notify') return;
 
@@ -38,6 +56,9 @@ class MessageHandler {
         const prefix = config.get('bot.prefix');
         const isCommand = text && text.startsWith(prefix) && !this.hasMedia(msg);
         
+        // Execute message hooks
+        await this.executeMessageHooks('pre_process', msg, text);
+        
         if (isCommand) {
             await this.handleCommand(msg, text);
         } else {
@@ -45,12 +66,25 @@ class MessageHandler {
             await this.handleNonCommandMessage(msg, text);
         }
 
+        // Execute post-process hooks
+        await this.executeMessageHooks('post_process', msg, text);
+
         // FIXED: ALWAYS sync to Telegram if bridge is active (this was the main issue)
         if (this.bot.telegramBridge) {
             await this.bot.telegramBridge.syncMessage(msg, text);
         }
     }
 
+    async executeMessageHooks(hookName, msg, text) {
+        const hooks = this.messageHooks.get(hookName) || [];
+        for (const hook of hooks) {
+            try {
+                await hook(msg, text, this.bot);
+            } catch (error) {
+                logger.error(`Error executing hook ${hookName}:`, error);
+            }
+        }
+    }
     // New method to check if message has media
     hasMedia(msg) {
         return !!(
@@ -101,7 +135,6 @@ if (!this.checkPermissions(msg, command)) {
     }
     return; // silently ignore
 }
-
 
     const userId = participant.split('@')[0];
     if (config.get('features.rateLimiting')) {
