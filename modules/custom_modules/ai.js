@@ -228,9 +228,15 @@ class AIUtilitiesModule {
     }
 
     async identifyImage(msg, params, context) {
-        if (!msg.message?.imageMessage &&      !msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) {
-            throw new Error('Please reply to an image to identify objects');
-        }
+
+const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+const quoted = contextInfo?.quotedMessage;
+if (!quoted?.imageMessage && !msg.message?.imageMessage) {
+    return this.bot.sendMessage(context.sender, {
+        text: '⚠️ Please reply to an image to identify objects.'
+    }, { quoted: msg });
+}
+
 
         const imageBuffer = await messageUtils.downloadMedia(msg, this.bot);
         const imageUrl = await this.uploadImageToService(imageBuffer);
@@ -248,9 +254,14 @@ class AIUtilitiesModule {
     }
 
     async enhanceImage(msg, params, context) {
-        if (!msg.message?.imageMessage &&      !msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) {
-            throw new Error('Please reply to an image to enhance');
-        }
+        const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+const quoted = contextInfo?.quotedMessage;
+if (!quoted?.imageMessage && !msg.message?.imageMessage) {
+    return this.bot.sendMessage(context.sender, {
+        text: '⚠️ Please *reply* to an image or send an image to enhance.'
+    }, { quoted: msg });
+}
+
 
         const imageBuffer = await messageUtils.downloadMedia(msg, this.bot);
         const imageUrl = await this.uploadImageToService(imageBuffer);
@@ -270,9 +281,14 @@ class AIUtilitiesModule {
     }
 
     async removeBackground(msg, params, context) {
-        if (!msg.message?.imageMessage &&      !msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) {
-            throw new Error('Please reply to an image to remove background');
-        }
+        const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+const quoted = contextInfo?.quotedMessage;
+if (!quoted?.imageMessage && !msg.message?.imageMessage) {
+    return this.bot.sendMessage(context.sender, {
+        text: '⚠️ Please reply to an image to remove background.'
+    }, { quoted: msg });
+}
+
 
         const imageBuffer = await messageUtils.downloadMedia(msg, this.bot);
         const imageUrl = await this.uploadImageToService(imageBuffer);
