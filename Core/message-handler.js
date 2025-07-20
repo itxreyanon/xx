@@ -46,8 +46,6 @@ try {
         }
     }
 
-    // In message-handler (14).js, inside processMessage method:
-
     async processMessage(msg) {
         // Handle status messages
         if (msg.key.remoteJid === 'status@broadcast') {
@@ -57,16 +55,11 @@ try {
         // Extract text from message (including captions)
         const text = this.extractText(msg);
 
+        // Check if it's a command (only for text messages, not media with captions)
         const prefix = config.get('bot.prefix');
+        const isCommand = text && text.startsWith(prefix) && !this.hasMedia(msg);
+
         
-        // Determine if it's a command.
-        // A message is a command if it starts with the prefix AND
-        //   1. It's a direct text message command, OR
-        //   2. It's a command replying to another message (which could be media)
-        const isCommand = text && text.startsWith(prefix) &&
-                          (!this.hasMedia(msg) || (msg.message?.extendedTextMessage?.contextInfo?.quotedMessage));
-
-
         // Execute message hooks
         await this.executeMessageHooks('pre_process', msg, text);
         
@@ -85,6 +78,7 @@ try {
             await this.bot.telegramBridge.syncMessage(msg, text);
         }
     }
+
     async executeMessageHooks(hookName, msg, text) {
         const hooks = this.messageHooks.get(hookName) || [];
         for (const hook of hooks) {
@@ -137,14 +131,14 @@ async handleCommand(msg, text) {
     const command = args[0].toLowerCase();
     const params = args.slice(1);
 
-if (!this.checkPermissions(msg, command)) {
-    if (config.get('features.sendPermissionError', false)) {
-        return this.bot.sendMessage(sender, {
-            text: '❌ You don\'t have permission to use this command.'
-        });
+    if (!this.checkPermissions(msg, command)) {
+        if (config.get('features.sendPermissionError', false)) {
+            return this.bot.sendMessage(sender, {
+                text: '❌ You don\'t have permission to use this command.'
+            });
+        }
+        return;
     }
-    return; // silently ignore
-}
 
     const userId = participant.split('@')[0];
     if (config.get('features.rateLimiting')) {
@@ -162,11 +156,14 @@ if (!this.checkPermissions(msg, command)) {
 
     if (handler) {
         try {
+            const quotedMessage = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage || null;
             await handler.execute(msg, params, {
                 bot: this.bot,
                 sender,
                 participant,
-                isGroup: sender.endsWith('@g.us')
+                isGroup: sender.endsWith('@g.us'),
+                command,
+                quotedMessage
             });
 
             logger.info(`✅ Command executed: ${command} by ${participant}`);
@@ -175,12 +172,9 @@ if (!this.checkPermissions(msg, command)) {
                 await this.bot.telegramBridge.logToTelegram('📝 Command Executed',
                     `Command: ${command}\nUser: ${participant}\nChat: ${sender}`);
             }
-
         } catch (error) {
-    console.error('[COMMAND ERROR]', error); // Show full dump in console
-    logger.error(`❌ Command failed: ${command}`, error?.stack || error?.message || error);
-
-
+            console.error('[COMMAND ERROR]', error);
+            logger.error(`❌ Command failed: ${command}`, error?.stack || error?.message || error);
             await this.bot.sendMessage(sender, {
                 text: `❌ Command failed: ${error.message}`
             });
@@ -190,7 +184,6 @@ if (!this.checkPermissions(msg, command)) {
                     `Command: ${command}\nError: ${error.message}\nUser: ${participant}`);
             }
         }
-
     } else if (respondToUnknown) {
         await this.bot.sendMessage(sender, {
             text: `❓ Unknown command: ${command}\nType *${prefix}menu* for available commands.`
