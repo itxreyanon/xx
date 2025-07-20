@@ -263,6 +263,18 @@ checkPermissions(msg, commandName) {
 
 
 extractText(msg) {
+    // Main message text
+    const text =
+        msg.message?.conversation ||
+        msg.message?.extendedTextMessage?.text ||
+        msg.message?.imageMessage?.caption ||
+        msg.message?.videoMessage?.caption ||
+        msg.message?.documentMessage?.caption ||
+        msg.message?.audioMessage?.caption;
+
+    // Only fallback to quoted content if the above is completely empty (rare)
+    if (text) return text;
+
     const quoted =
         msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.conversation ||
         msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.extendedTextMessage?.text ||
@@ -271,17 +283,9 @@ extractText(msg) {
         msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.documentMessage?.caption ||
         msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.audioMessage?.caption;
 
-    return (
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text ||
-        msg.message?.imageMessage?.caption ||
-        msg.message?.videoMessage?.caption ||
-        msg.message?.documentMessage?.caption ||
-        msg.message?.audioMessage?.caption ||
-        quoted ||
-        ''
-    );
+    return quoted || '';
 }
+
 
 }
 
