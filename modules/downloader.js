@@ -4,7 +4,7 @@ const messageUtils = require('./helpers/message-utils');
 class DownloadersModule {
     constructor(bot) {
         this.bot = bot;
-        this.name = 'downloaders';
+        this.name = 'downloader';
         this.metadata = {
             description: 'Media downloaders from various platforms',
             version: '1.0.0',
