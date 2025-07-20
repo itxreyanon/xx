@@ -34,18 +34,21 @@ class MessageUtils {
         return 'unknown';
     }
 
-    static async downloadMedia(msg, bot) {
-        try {
-            if (!this.hasMedia(msg)) {
-                throw new Error('No media found in message');
-            }
+    static async downloadMedia(msg, bot, quotedMessage = null) {
+    try {
+        const target = quotedMessage || msg;
 
-            return await bot.sock.downloadMediaMessage(msg);
-        } catch (error) {
-            logger.error('Failed to download media:', error);
-            throw error;
+        if (!this.hasMedia(target)) {
+            throw new Error('No media found in message');
         }
+
+        return await bot.sock.downloadMediaMessage(target);
+    } catch (error) {
+        logger.error('Failed to download media:', error);
+        throw error;
     }
+}
+
 
     static formatFileSize(bytes) {
         if (bytes === 0) return '0 Bytes';
@@ -171,5 +174,7 @@ class MessageUtils {
         }
     }
 }
+
+
 
 module.exports = MessageUtils;
