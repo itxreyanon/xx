@@ -3,33 +3,41 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const Helpers = require('../utils/helpers');
+const logger = require('../Core/logger');
 
 class VoiceChangersModule {
     constructor(bot, messageHandler) {
         this.bot = bot;
         this.messageHandler = messageHandler;
-        this.name = 'voice-changer';
+        this.name = 'voice-changers';
         this.metadata = {
             description: 'Audio effects and voice changers',
             version: '1.0.0',
-            author: 'Adapted for MessageHandler',
+            author: 'Adapted for HyperWa Userbot',
             category: 'voice changer'
         };
 
         this.commands = [
-            { name: 'bass', description: 'Add bass effect to audio', usage: '.bass (reply to audio)', permissions: 'public' },
-            { name: 'blown', description: 'Add blown effect to audio', usage: '.blown (reply to audio)', permissions: 'public' },
-            { name: 'chipmunk', description: 'Add chipmunk effect to audio', usage: '.chipmunk (reply to audio)', permissions: 'public' },
-            { name: 'deep', description: 'Add deep voice effect to audio', usage: '.deep (reply to audio)', permissions: 'public' },
-            { name: 'earrape', description: 'Add earrape effect to audio', usage: '.earrape (reply to audio)', permissions: 'public' },
-            { name: 'fast', description: 'Speed up audio', usage: '.fast (reply to audio)', permissions: 'public' },
-            { name: 'fat', description: 'Add fat voice effect to audio', usage: '.fat (reply to audio)', permissions: 'public' },
-            { name: 'nightcore', description: 'Add nightcore effect to audio', usage: '.nightcore (reply to audio)', permissions: 'public' },
-            { name: 'reverse', description: 'Reverse audio', usage: '.reverse (reply to audio)', permissions: 'public' },
-            { name: 'robot', description: 'Add robot voice effect to audio', usage: '.robot (reply to audio)', permissions: 'public' },
-            { name: 'slow', description: 'Slow down audio', usage: '.slow (reply to audio)', permissions: 'public' },
-            { name: 'smooth', description: 'Add smooth effect to audio', usage: '.smooth (reply to audio)', permissions: 'public' }
+            { name: 'bass', description: 'Add bass effect to audio', usage: '.bass (reply to audio)', permissions: 'public', ui: { processingText: '🎵 *Adding Bass Effect...*\n\n⏳ Processing audio...', errorText: '❌ *Bass Effect Failed*' } },
+            { name: 'blown', description: 'Add blown effect to audio', usage: '.blown (reply to audio)', permissions: 'public', ui: { processingText: '💨 *Adding Blown Effect...*\n\n⏳ Processing audio...', errorText: '❌ *Blown Effect Failed*' } },
+            { name: 'chipmunk', description: 'Add chipmunk effect to audio', usage: '.chipmunk (reply to audio)', permissions: 'public', ui: { processingText: '🐿️ *Adding Chipmunk Effect...*\n\n⏳ Processing audio...', errorText: '❌ *Chipmunk Effect Failed*' } },
+            { name: 'deep', description: 'Add deep voice effect to audio', usage: '.deep (reply to audio)', permissions: 'public', ui: { processingText: '🎙️ *Adding Deep Voice...*\n\n⏳ Processing audio...', errorText: '❌ *Deep Voice Failed*' } },
+            { name: 'earrape', description: 'Add earrape effect to audio', usage: '.earrape (reply to audio)', permissions: 'public', ui: { processingText: '📢 *Adding Earrape Effect...*\n\n⏳ Processing audio...', errorText: '❌ *Earrape Effect Failed*' } },
+            { name: 'fast', description: 'Speed up audio', usage: '.fast (reply to audio)', permissions: 'public', ui: { processingText: '⚡ *Speeding Up Audio...*\n\n⏳ Processing audio...', errorText: '❌ *Fast Effect Failed*' } },
+            { name: 'fat', description: 'Add fat voice effect to audio', usage: '.fat (reply to audio)', permissions: 'public', ui: { processingText: '🎭 *Adding Fat Voice...*\n\n⏳ Processing audio...', errorText: '❌ *Fat Voice Failed*' } },
+            { name: 'nightcore', description: 'Add nightcore effect to audio', usage: '.nightcore (reply to audio)', permissions: 'public', ui: { processingText: '🌙 *Adding Nightcore Effect...*\n\n⏳ Processing audio...', errorText: '❌ *Nightcore Effect Failed*' } },
+            { name: 'reverse', description: 'Reverse audio', usage: '.reverse (reply to audio)', permissions: 'public', ui: { processingText: '🔄 *Reversing Audio...*\n\n⏳ Processing audio...', errorText: '❌ *Reverse Effect Failed*' } },
+            { name: 'robot', description: 'Add robot voice effect to audio', usage: '.robot (reply to audio)', permissions: 'public', ui: { processingText: '🤖 *Adding Robot Voice...*\n\n⏳ Processing audio...', errorText: '❌ *Robot Voice Failed*' } },
+            { name: 'slow', description: 'Slow down audio', usage: '.slow (reply to audio)', permissions: 'public', ui: { processingText: '🐌 *Slowing Down Audio...*\n\n⏳ Processing audio...', errorText: '❌ *Slow Effect Failed*' } },
+            { name: 'smooth', description: 'Add smooth effect to audio', usage: '.smooth (reply to audio)', permissions: 'public', ui: { processingText: '✨ *Adding Smooth Effect...*\n\n⏳ Processing audio...', errorText: '❌ *Smooth Effect Failed*' } }
         ];
+    }
+
+    async init() {
+        if (!this.messageHandler || typeof this.messageHandler.registerCommandHandler !== 'function') {
+            logger.error('MessageHandler is not properly initialized for VoiceChangersModule');
+            throw new Error('Failed to initialize VoiceChangersModule: MessageHandler not provided');
+        }
 
         // Register commands with MessageHandler
         this.commands.forEach(cmd => {
@@ -37,15 +45,27 @@ class VoiceChangersModule {
                 execute: async (msg, params, context) => {
                     await this.applyVoiceEffect(msg, params, context, cmd);
                 },
-                permissions: cmd.permissions
+                permissions: cmd.permissions,
+                ui: cmd.ui
             });
+            logger.debug(`📝 Registered voice changer command: ${cmd.name}`);
         });
+
+        logger.info('VoiceChangersModule initialized successfully');
+    }
+
+    async destroy() {
+        this.commands.forEach(cmd => {
+            this.messageHandler.unregisterCommandHandler(cmd.name);
+            logger.debug(`🗑️ Unregistered voice changer command: ${cmd.name}`);
+        });
+        logger.info('VoiceChangersModule destroyed');
     }
 
     async applyVoiceEffect(msg, params, context, command) {
-        await Helpers.smartErrorRespond(this.bot, msg, {
-            processingText: `🎵 *Adding ${this.capitalizeFirst(command.name)} Effect...*\n\n⏳ Processing audio...`,
-            errorText: `❌ *${this.capitalizeFirst(command.name)} Effect Failed*`,
+        return await Helpers.smartErrorRespond(this.bot, msg, {
+            processingText: command.ui.processingText,
+            errorText: command.ui.errorText,
             actionFn: async () => {
                 // Check for audio message
                 const audioMessage = msg.message?.audioMessage || msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.audioMessage;
@@ -69,7 +89,7 @@ class VoiceChangersModule {
                 const isVoiceNote = audioMessage.ptt;
 
                 // Send processed audio
-                await this.bot.sendMessage(context.sender, {
+                await this.bot.sock.sendMessage(context.sender, {
                     audio: processedAudio,
                     mimetype: 'audio/mpeg',
                     ptt: isVoiceNote,
@@ -86,11 +106,14 @@ class VoiceChangersModule {
             throw new Error('No audio message found');
         }
 
-        const stream = await this.bot.sock.downloadMediaMessage(
-            audioMessage.contextInfo?.quotedMessage || msg,
-            'buffer'
-        );
-        return stream;
+        try {
+            const messageToDownload = audioMessage.contextInfo?.quotedMessage || msg;
+            const stream = await this.bot.sock.downloadMediaMessage(messageToDownload, 'buffer');
+            return stream;
+        } catch (error) {
+            logger.error('Failed to download media:', error);
+            throw new Error(`Failed to download audio: ${error.message}`);
+        }
     }
 
     getAudioFilter(command) {
@@ -129,10 +152,11 @@ class VoiceChangersModule {
                         fs.unlinkSync(inputPath);
                     }
                 } catch (cleanupError) {
-                    console.error('Error cleaning up input file:', cleanupError);
+                    logger.error('Error cleaning up input file:', cleanupError);
                 }
 
                 if (error) {
+                    logger.error('FFmpeg processing failed:', error);
                     reject(new Error(`Audio processing failed: ${error.message}`));
                     return;
                 }
@@ -148,6 +172,7 @@ class VoiceChangersModule {
                     
                     resolve(processedBuffer);
                 } catch (readError) {
+                    logger.error('Failed to read processed audio:', readError);
                     reject(new Error(`Failed to read processed audio: ${readError.message}`));
                 }
             });
