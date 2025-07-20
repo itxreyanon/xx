@@ -1,5 +1,5 @@
 
-const logger = require('../logger');
+const logger = require('../Core/logger');
 
 class MessageUtils {
     static extractText(msg) {
