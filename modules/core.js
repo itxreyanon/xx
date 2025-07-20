@@ -1,18 +1,18 @@
 const config = require('../config');
 const fs = require('fs-extra');
 const path = require('path');
+const { exec } = require('child_process');
 const helpers = require('../utils/helpers');
 
-class CoreCommands {
+class CoreModule {
     constructor(bot) {
         this.bot = bot;
         this.name = 'core';
         this.metadata = {
-            description: 'Core commands for bot management and system information',
-            version: '2.0.1',
+            description: 'Core commands for bot control and monitoring',
+            version: '2.1.0',
             author: 'HyperWA',
-            category: 'system',
-            dependencies: ['@whiskeysockets/baileys', 'fs-extra']
+            category: 'system'
         };
         this.commands = [
             {
@@ -20,6 +20,10 @@ class CoreCommands {
                 description: 'Check bot response time',
                 usage: '.ping',
                 permissions: 'public',
+                ui: {
+                    processingText: '🏓 *Pinging...*',
+                    errorText: '❌ Failed to ping'
+                },
                 execute: this.ping.bind(this)
             },
             {
@@ -27,6 +31,10 @@ class CoreCommands {
                 description: 'Show bot status and statistics',
                 usage: '.status',
                 permissions: 'public',
+                ui: {
+                    processingText: '📊 Gathering status...',
+                    errorText: '❌ Failed to retrieve status'
+                },
                 execute: this.status.bind(this)
             },
             {
@@ -34,187 +42,225 @@ class CoreCommands {
                 description: 'Restart the bot (owner only)',
                 usage: '.restart',
                 permissions: 'owner',
+                ui: {
+                    processingText: '🔄 Restarting bot...',
+                    errorText: '❌ Restart failed'
+                },
                 execute: this.restart.bind(this)
             },
             {
                 name: 'mode',
-                description: 'Toggle bot mode between public and private',
+                description: 'Toggle bot mode',
                 usage: '.mode [public|private]',
                 permissions: 'owner',
+                ui: {
+                    processingText: '⚙️ Toggling mode...',
+                    errorText: '❌ Mode change failed'
+                },
                 execute: this.toggleMode.bind(this)
             },
             {
                 name: 'ban',
-                description: 'Ban a user from using the bot',
-                usage: '.ban <phone_number>',
+                description: 'Ban a user',
+                usage: '.ban <number>',
                 permissions: 'owner',
+                ui: {
+                    processingText: '🚫 Banning user...',
+                    errorText: '❌ Failed to ban user'
+                },
                 execute: this.banUser.bind(this)
             },
             {
                 name: 'unban',
                 description: 'Unban a user',
-                usage: '.unban <phone_number>',
+                usage: '.unban <number>',
                 permissions: 'owner',
+                ui: {
+                    processingText: '✅ Unbanning user...',
+                    errorText: '❌ Failed to unban user'
+                },
                 execute: this.unbanUser.bind(this)
             },
             {
                 name: 'broadcast',
-                description: 'Send a message to all chats',
+                description: 'Broadcast message to all chats',
                 usage: '.broadcast <message>',
                 permissions: 'owner',
+                ui: {
+                    processingText: '📢 Sending broadcast...',
+                    errorText: '❌ Broadcast failed'
+                },
                 execute: this.broadcast.bind(this)
             },
+            {
+                name: 'update',
+                description: 'Pull latest updates from Git',
+                usage: '.update',
+                permissions: 'owner',
+                ui: {
+                    processingText: '📥 Updating code...',
+                    errorText: '❌ Update failed'
+                },
+                execute: this.updateCode.bind(this)
+            },
+            {
+                name: 'sh',
+                description: 'Execute a shell command',
+                usage: '.sh <command>',
+                permissions: 'owner',
+                ui: {
+                    processingText: '🖥️ Running shell command...',
+                    errorText: '❌ Shell command failed'
+                },
+                execute: this.runShell.bind(this)
+            }
         ];
-        this.startTime = Date.now();
+
         this.commandCounts = new Map();
+        this.startTime = Date.now();
     }
 
     async ping(msg, params, context) {
         const start = Date.now();
-        const response = await context.bot.sendMessage(context.sender, { text: '🏓 Pinging...' });
         const latency = Date.now() - start;
-        await context.bot.sock.sendMessage(context.sender, {
-            text: `🏓 *Pong!*\n\nLatency: ${latency}ms\n⏰ ${new Date().toLocaleTimeString()}`,
-            edit: response.key
-        });
         this.incrementCommandCount('ping');
+        return `🏓 *Pong!*\n\nLatency: ${latency}ms\n⏰ ${new Date().toLocaleTimeString()}`;
     }
 
     async status(msg, params, context) {
         const uptime = this.getUptime();
-        const totalCommands = Array.from(this.commandCounts.values()).reduce((a, b) => a + b, 0);
-        const statusText = `🤖 *${config.get('bot.name')} Status*\n\n` +
-                          `🆚 Version: ${config.get('bot.version')}\n` +
-                          `👤 Owner: ${config.get('bot.owner').split('@')[0]}\n` +
-                          `⏰ Uptime: ${uptime}\n` +
-                          `📊 Commands Executed: ${totalCommands}\n` +
-                          `🌐 Mode: ${config.get('features.mode')}\n` +
-                          `🔗 Telegram Bridge: ${config.get('telegram.enabled') ? 'Enabled' : 'Disabled'}\n` +
-                          `📞 Contacts Synced: ${this.bot.telegramBridge?.contactMappings.size || 0}`;
-        await context.bot.sendMessage(context.sender, { text: statusText });
+        const totalCommands = [...this.commandCounts.values()].reduce((a, b) => a + b, 0);
+        const text = `🤖 *${config.get('bot.name')} Status*\n\n` +
+                     `🆚 Version: ${config.get('bot.version')}\n` +
+                     `👤 Owner: ${config.get('bot.owner').split('@')[0]}\n` +
+                     `⏰ Uptime: ${uptime}\n` +
+                     `📊 Commands Executed: ${totalCommands}\n` +
+                     `🌐 Mode: ${config.get('features.mode')}\n` +
+                     `🔗 Telegram Bridge: ${config.get('telegram.enabled') ? 'Enabled' : 'Disabled'}\n` +
+                     `📞 Contacts Synced: ${this.bot.telegramBridge?.contactMappings.size || 0}`;
         this.incrementCommandCount('status');
+        return text;
     }
 
     async restart(msg, params, context) {
-        await context.bot.sendMessage(context.sender, { text: '🔄 *Restarting Bot...*\n\n⏳ Please wait...' });
-        if (this.bot.telegramBridge) {
-            await this.bot.telegramBridge.logToTelegram('🔄 Bot Restart', 'Initiated by owner');
-        }
-        setTimeout(() => process.exit(0), 1000); // Assuming PM2 or similar restarts the process
         this.incrementCommandCount('restart');
+        if (this.bot.telegramBridge) {
+            await this.bot.telegramBridge.logToTelegram('🔄 Bot Restart', 'Restart requested by owner.');
+        }
+        setTimeout(() => process.exit(0), 1000);
+        return '🔁 Restarting process...';
     }
 
     async toggleMode(msg, params, context) {
-        if (params.length === 0) {
-            await context.bot.sendMessage(context.sender, {
-                text: `🌐 *Current Mode*: ${config.get('features.mode')}\n\nUsage: \`.mode [public|private]\``
-            });
-            return;
-        }
-
-        const mode = params[0].toLowerCase();
-        if (mode !== 'public' && mode !== 'private') {
-            await context.bot.sendMessage(context.sender, { text: '❌ Invalid mode. Use `.mode public` or `.mode private`.' });
-            return;
+        const mode = params[0]?.toLowerCase();
+        if (!['public', 'private'].includes(mode)) {
+            return `🌐 Current Mode: ${config.get('features.mode')}\n\nUsage: \`.mode public|private\``;
         }
 
         config.set('features.mode', mode);
-        const modeText = `✅ *Bot Mode Changed*\n\n🌐 New Mode: ${mode}\n⏰ ${new Date().toLocaleTimeString()}`;
-        await context.bot.sendMessage(context.sender, { text: modeText });
-        if (this.bot.telegramBridge) {
-            await this.bot.telegramBridge.logToTelegram('🌐 Bot Mode Changed', `New Mode: ${mode}`);
-        }
         this.incrementCommandCount('mode');
+        if (this.bot.telegramBridge) {
+            await this.bot.telegramBridge.logToTelegram('🌐 Mode Changed', `New mode: ${mode}`);
+        }
+        return `✅ *Mode Changed*\n\nNew Mode: ${mode}`;
     }
 
-
     async banUser(msg, params, context) {
-        if (params.length === 0) {
-            await context.bot.sendMessage(context.sender, { text: '❌ Usage: `.ban <phone_number>`' });
-            return;
-        }
+        const phone = (params[0] || '').replace('+', '');
+        if (!phone) return '❌ Usage: `.ban <number>`';
+        const list = config.get('security.blockedUsers') || [];
+        if (list.includes(phone)) return `❌ User ${phone} is already banned.`;
 
-        const phone = params[0].replace('+', '');
-        const blockedUsers = config.get('security.blockedUsers') || [];
-        if (blockedUsers.includes(phone)) {
-            await context.bot.sendMessage(context.sender, { text: `❌ User ${phone} is already banned` });
-            return;
-        }
-
-        blockedUsers.push(phone);
-        config.set('security.blockedUsers', blockedUsers);
-        const banText = `🚫 *User Banned*\n\n📱 Phone: ${phone}\n⏰ ${new Date().toLocaleTimeString()}`;
-        await context.bot.sendMessage(context.sender, { text: banText });
-        if (this.bot.telegramBridge) {
-            await this.bot.telegramBridge.logToTelegram('🚫 User Banned', `Phone: ${phone}`);
-        }
+        list.push(phone);
+        config.set('security.blockedUsers', list);
         this.incrementCommandCount('ban');
+
+        if (this.bot.telegramBridge) {
+            await this.bot.telegramBridge.logToTelegram('🚫 User Banned', phone);
+        }
+        return `🚫 *User Banned*\n\n📱 ${phone}`;
     }
 
     async unbanUser(msg, params, context) {
-        if (params.length === 0) {
-            await context.bot.sendMessage(context.sender, { text: '❌ Usage: `.unban <phone_number>`' });
-            return;
-        }
+        const phone = (params[0] || '').replace('+', '');
+        if (!phone) return '❌ Usage: `.unban <number>`';
+        const list = config.get('security.blockedUsers') || [];
+        if (!list.includes(phone)) return `❌ User ${phone} is not banned.`;
 
-        const phone = params[0].replace('+', '');
-        const blockedUsers = config.get('security.blockedUsers') || [];
-        if (!blockedUsers.includes(phone)) {
-            await context.bot.sendMessage(context.sender, { text: `❌ User ${phone} is not banned` });
-            return;
-        }
-
-        config.set('security.blockedUsers', blockedUsers.filter(u => u !== phone));
-        const unbanText = `✅ *User Unbanned*\n\n📱 Phone: ${phone}\n⏰ ${new Date().toLocaleTimeString()}`;
-        await context.bot.sendMessage(context.sender, { text: unbanText });
-        if (this.bot.telegramBridge) {
-            await this.bot.telegramBridge.logToTelegram('✅ User Unbanned', `Phone: ${phone}`);
-        }
+        config.set('security.blockedUsers', list.filter(p => p !== phone));
         this.incrementCommandCount('unban');
+
+        if (this.bot.telegramBridge) {
+            await this.bot.telegramBridge.logToTelegram('✅ User Unbanned', phone);
+        }
+        return `✅ *User Unbanned*\n\n📱 ${phone}`;
     }
 
     async broadcast(msg, params, context) {
-        if (params.length === 0) {
-            await context.bot.sendMessage(context.sender, { text: '❌ Usage: `.broadcast <message>`' });
-            return;
-        }
+        const text = params.join(' ');
+        if (!text) return '❌ Usage: `.broadcast <message>`';
 
-        const message = params.join(' ');
         const chats = this.bot.telegramBridge?.chatMappings.keys() || [];
-        let sentCount = 0;
-
-        for (const chatJid of chats) {
-            if (chatJid !== 'status@broadcast' && chatJid !== 'call@broadcast') {
-                try {
-                    await this.bot.sendMessage(chatJid, { text: `📢 *Broadcast*\n\n${message}` });
-                    sentCount++;
-                } catch (error) {
-                    this.bot.logger.error(`Failed to send broadcast to ${chatJid}:`, error);
-                }
+        let sent = 0;
+        for (const jid of chats) {
+            try {
+                await this.bot.sendMessage(jid, { text: `📢 *Broadcast*\n\n${text}` });
+                sent++;
+            } catch (e) {
+                this.bot.logger?.error?.(`Broadcast failed to ${jid}`, e);
             }
         }
 
-        const broadcastText = `📢 *Broadcast Sent*\n\n📩 Message: ${message}\n📊 Sent to ${sentCount} chats\n⏰ ${new Date().toLocaleTimeString()}`;
-        await context.bot.sendMessage(context.sender, { text: broadcastText });
-        if (this.bot.telegramBridge) {
-            await this.bot.telegramBridge.logToTelegram('📢 Broadcast Sent', `Message: ${message}\nSent to ${sentCount} chats`);
-        }
         this.incrementCommandCount('broadcast');
+        if (this.bot.telegramBridge) {
+            await this.bot.telegramBridge.logToTelegram('📢 Broadcast Sent', `${text} (${sent} chats)`);
+        }
+        return `📢 *Broadcast Sent*\n\nSent to ${sent} chats.`;
     }
 
-    
+    async updateCode(msg, params, context) {
+        return new Promise((resolve, reject) => {
+            exec('git pull', async (err, stdout, stderr) => {
+                if (err || stderr) {
+                    return reject(stderr || err.message);
+                }
+
+                if (this.bot.telegramBridge) {
+                    await this.bot.telegramBridge.logToTelegram('📥 Update Pulled', stdout);
+                }
+
+                this.incrementCommandCount('update');
+                resolve(`📥 *Update Complete*\n\n\`\`\`\n${stdout.trim()}\n\`\`\``);
+            });
+        });
+    }
+
+    async runShell(msg, params, context) {
+        const command = params.join(' ');
+        if (!command) return '❌ Usage: `.sh <command>`';
+        return new Promise((resolve, reject) => {
+            exec(command, { timeout: 10000 }, (err, stdout, stderr) => {
+                if (err || stderr) {
+                    return reject(stderr || err.message);
+                }
+                this.incrementCommandCount('sh');
+                resolve(`🖥️ *Command Output*\n\n\`\`\`\n${stdout.trim()}\n\`\`\``);
+            });
+        });
+    }
+
     getUptime() {
-        const seconds = Math.floor((Date.now() - this.startTime) / 1000);
-        const days = Math.floor(seconds / (3600 * 24));
-        const hours = Math.floor((seconds % (3600 * 24)) / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        const secs = seconds % 60;
-        return `${days}d ${hours}h ${minutes}m ${secs}s`;
+        const sec = Math.floor((Date.now() - this.startTime) / 1000);
+        const d = Math.floor(sec / 86400);
+        const h = Math.floor((sec % 86400) / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = sec % 60;
+        return `${d}d ${h}h ${m}m ${s}s`;
     }
 
-    incrementCommandCount(command) {
-        this.commandCounts.set(command, (this.commandCounts.get(command) || 0) + 1);
+    incrementCommandCount(name) {
+        this.commandCounts.set(name, (this.commandCounts.get(name) || 0) + 1);
     }
 }
 
-module.exports = CoreCommands;
+module.exports = CoreModule;
