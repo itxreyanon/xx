@@ -1,10 +1,11 @@
 const apiHelper = require('../../utils/api-helper');
-const messageUtils = require('../../utils/helpers');
+const messageUtils = require('../../utils/message-utils');
+
 
 class AIUtilitiesModule {
     constructor(bot) {
         this.bot = bot;
-        this.name = 'ai';
+        this.name = 'ai-utilities';
         this.metadata = {
             description: 'AI-powered utilities and tools',
             version: '1.0.0',
@@ -215,7 +216,7 @@ class AIUtilitiesModule {
             throw new Error('Please reply to an image to extract text');
         }
 
-        const imageBuffer = await helpers.downloadMedia(msg, this.bot);
+        const imageBuffer = await messageUtils.downloadMedia(msg, this.bot);
         const imageUrl = await this.uploadImageToService(imageBuffer);
 
         const result = await apiHelper.neoxrApi('/ocr', { image: imageUrl });
@@ -232,7 +233,7 @@ class AIUtilitiesModule {
             throw new Error('Please reply to an image to identify objects');
         }
 
-        const imageBuffer = await helpers.downloadMedia(msg, this.bot);
+        const imageBuffer = await messageUtils.downloadMedia(msg, this.bot);
         const imageUrl = await this.uploadImageToService(imageBuffer);
 
         const result = await apiHelper.neoxrApi('/gemini-vision', { 
@@ -252,7 +253,7 @@ class AIUtilitiesModule {
             throw new Error('Please reply to an image to enhance');
         }
 
-        const imageBuffer = await helpers.downloadMedia(msg, this.bot);
+        const imageBuffer = await messageUtils.downloadMedia(msg, this.bot);
         const imageUrl = await this.uploadImageToService(imageBuffer);
 
         const result = await apiHelper.neoxrApi('/remini', { image: imageUrl });
