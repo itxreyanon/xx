@@ -1,5 +1,4 @@
-const messageUtils = require('../../utils/helpers');
-
+const messageUtils = require('./helpers/message-utils');
 const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -152,13 +151,9 @@ class VoiceChangersModule {
     }
 
     async applyVoiceEffect(msg, params, context) {
-        const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
-const quoted = contextInfo?.quotedMessage;
-if (!quoted?.audioMessage && !msg.message?.audioMessage) {
-    return this.bot.sendMessage(context.sender, {
-        text: '⚠️ Please *reply* to an audio message or send an audio message.'
-    }, { quoted: msg });
-}
+        if (!msg.message?.audioMessage && !context.quotedMessage?.audioMessage) {
+            throw new Error('Please reply to an audio message to apply voice effects');
+        }
 
         const command = context.command;
         const audioBuffer = await messageUtils.downloadMedia(msg, this.bot);
