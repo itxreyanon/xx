@@ -156,7 +156,19 @@ async handleCommand(msg, text) {
 
     if (handler) {
         try {
-            const quotedMessage = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage || null;
+            let quotedMessage = null;
+
+const contextInfo =
+    msg.message?.extendedTextMessage?.contextInfo ||
+    msg.message?.imageMessage?.contextInfo ||
+    msg.message?.videoMessage?.contextInfo ||
+    msg.message?.audioMessage?.contextInfo ||
+    msg.message?.documentMessage?.contextInfo;
+
+if (contextInfo?.quotedMessage) {
+    quotedMessage = contextInfo.quotedMessage;
+}
+
             await handler.execute(msg, params, {
                 bot: this.bot,
                 sender,
