@@ -214,9 +214,8 @@ class ModuleLoader {
         // Load help system after all modules
         this.setupHelpSystem();
 
-        logger.info(`✅ Loaded ${this.systemModulesCount} System Modules.`);
-        logger.info(`✅ Loaded ${this.customModulesCount} Custom Modules.`);
-        logger.info(`✅ Total Modules Loaded: ${this.systemModulesCount + this.customModulesCount}`);
+logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 Custom: ${this.customModulesCount} || 📊 Total: ${this.systemModulesCount + this.customModulesCount}`);
+
     }
 
     setupHelpSystem() {
@@ -411,7 +410,7 @@ const wrappedCmd = cmd.autoWrap === false ? cmd : {
     logger.error(`❌ Failed to load module '${moduleId}' from ${filePath}`);
     logger.error(`Error name: ${err.name}`);
     logger.error(`Error message: ${err.message}`);
-    logger.error(`Error stack:\n${err.stack}`);
+
 }
 
     }
