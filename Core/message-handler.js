@@ -35,8 +35,8 @@ class MessageHandler {
         if (type !== 'notify') return;
 
         for (const msg of messages) {
-try {
-    await this.processMessage(msg);
+            try {
+                await this.processMessage(msg);
 } catch (error) {
     console.error('[UNCAUGHT ERROR]', error); // Full dump
     logger.error('Error processing message:', error?.stack || error?.message || JSON.stringify(error));
@@ -54,11 +54,10 @@ try {
 
         // Extract text from message (including captions)
         const text = this.extractText(msg);
-
+        
         // Check if it's a command (only for text messages, not media with captions)
         const prefix = config.get('bot.prefix');
         const isCommand = text && text.startsWith(prefix) && !this.hasMedia(msg);
-
         
         // Execute message hooks
         await this.executeMessageHooks('pre_process', msg, text);
@@ -140,7 +139,6 @@ if (!this.checkPermissions(msg, command)) {
     return; // silently ignore
 }
 
-
     const userId = participant.split('@')[0];
     if (config.get('features.rateLimiting')) {
         const canExecute = await rateLimiter.checkCommandLimit(userId);
@@ -190,7 +188,6 @@ if (!this.checkPermissions(msg, command)) {
         });
     }
 }
-
 
     async handleNonCommandMessage(msg, text) {
         // Log media messages for debugging
@@ -260,8 +257,6 @@ checkPermissions(msg, commandName) {
                msg.message?.audioMessage?.caption ||
                '';
     }
-
-
 }
 
 module.exports = MessageHandler;
