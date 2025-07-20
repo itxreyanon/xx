@@ -1,5 +1,5 @@
-const apiHelper = require('../../utils/api-helper');
-const messageUtils = require('../../utils/helpers');
+const apiHelper = require('./helpers/api-helper');
+const messageUtils = require('./helpers/message-utils');
 
 class AIUtilitiesModule {
     constructor(bot) {
@@ -211,7 +211,7 @@ class AIUtilitiesModule {
     }
 
     async extractTextFromImage(msg, params, context) {
-        if (!msg.message?.imageMessage &&      !msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) {
+        if (!msg.message?.imageMessage && !context.quotedMessage?.imageMessage) {
             throw new Error('Please reply to an image to extract text');
         }
 
@@ -228,15 +228,9 @@ class AIUtilitiesModule {
     }
 
     async identifyImage(msg, params, context) {
-
-const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
-const quoted = contextInfo?.quotedMessage;
-if (!quoted?.imageMessage && !msg.message?.imageMessage) {
-    return this.bot.sendMessage(context.sender, {
-        text: '⚠️ Please reply to an image to identify objects.'
-    }, { quoted: msg });
-}
-
+        if (!msg.message?.imageMessage && !context.quotedMessage?.imageMessage) {
+            throw new Error('Please reply to an image to identify objects');
+        }
 
         const imageBuffer = await messageUtils.downloadMedia(msg, this.bot);
         const imageUrl = await this.uploadImageToService(imageBuffer);
@@ -254,14 +248,9 @@ if (!quoted?.imageMessage && !msg.message?.imageMessage) {
     }
 
     async enhanceImage(msg, params, context) {
-        const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
-const quoted = contextInfo?.quotedMessage;
-if (!quoted?.imageMessage && !msg.message?.imageMessage) {
-    return this.bot.sendMessage(context.sender, {
-        text: '⚠️ Please *reply* to an image or send an image to enhance.'
-    }, { quoted: msg });
-}
-
+        if (!msg.message?.imageMessage && !context.quotedMessage?.imageMessage) {
+            throw new Error('Please reply to an image to enhance');
+        }
 
         const imageBuffer = await messageUtils.downloadMedia(msg, this.bot);
         const imageUrl = await this.uploadImageToService(imageBuffer);
@@ -281,14 +270,9 @@ if (!quoted?.imageMessage && !msg.message?.imageMessage) {
     }
 
     async removeBackground(msg, params, context) {
-        const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
-const quoted = contextInfo?.quotedMessage;
-if (!quoted?.imageMessage && !msg.message?.imageMessage) {
-    return this.bot.sendMessage(context.sender, {
-        text: '⚠️ Please reply to an image to remove background.'
-    }, { quoted: msg });
-}
-
+        if (!msg.message?.imageMessage && !context.quotedMessage?.imageMessage) {
+            throw new Error('Please reply to an image to remove background');
+        }
 
         const imageBuffer = await messageUtils.downloadMedia(msg, this.bot);
         const imageUrl = await this.uploadImageToService(imageBuffer);
