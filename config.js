@@ -7,7 +7,7 @@ constructor() {
             company: 'Dawium Technologies',
             prefix: '.',
             version: '2.0.0',
-            owner: '00000@s.whatsapp.net',
+            owner: '923417033005@s.whatsapp.net',
             clearAuthOnStart: false
         },
           auth: {
@@ -45,9 +45,9 @@ constructor() {
             },
             telegram: {
                 enabled: true,
-                botToken: '7580382614:AAH30PW6TFmgRzbC7HUXIHQ35GpndbJOIEI',
-                chatId: '-1002287300661', 
+                botToken: '7822179405:AAHI1zW7qkXZsqOtyu9NeRdmquwbx1aZu0o',
                 botPassword: '1122',
+                chatId: '-1002783833178',
                 logChannel: '-100000000000',
                 features: {
                     topics: true,
