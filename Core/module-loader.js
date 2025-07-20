@@ -405,10 +405,8 @@ const wrappedCmd = cmd.autoWrap === false ? cmd : {
                 this.customModulesCount++;
             }
 
-            logger.info(`✅ Loaded ${isSystem ? 'System' : 'Custom'} module: ${actualModuleId}`);
 } catch (err) {
     logger.error(`❌ Failed to load module '${moduleId}' from ${filePath}`);
-    logger.error(`Error name: ${err.name}`);
     logger.error(`Error message: ${err.message}`);
 
 }
