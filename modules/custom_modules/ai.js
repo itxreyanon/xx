@@ -211,7 +211,7 @@ class AIUtilitiesModule {
     }
 
     async extractTextFromImage(msg, params, context) {
-        if (!msg.message?.imageMessage && !context.quotedMessage?.imageMessage) {
+        if (!msg.message?.imageMessage &&      !msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) {
             throw new Error('Please reply to an image to extract text');
         }
 
@@ -228,7 +228,7 @@ class AIUtilitiesModule {
     }
 
     async identifyImage(msg, params, context) {
-        if (!msg.message?.imageMessage && !context.quotedMessage?.imageMessage) {
+        if (!msg.message?.imageMessage &&      !msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) {
             throw new Error('Please reply to an image to identify objects');
         }
 
@@ -248,7 +248,7 @@ class AIUtilitiesModule {
     }
 
     async enhanceImage(msg, params, context) {
-        if (!msg.message?.imageMessage && !context.quotedMessage?.imageMessage) {
+        if (!msg.message?.imageMessage &&      !msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) {
             throw new Error('Please reply to an image to enhance');
         }
 
@@ -270,7 +270,7 @@ class AIUtilitiesModule {
     }
 
     async removeBackground(msg, params, context) {
-        if (!msg.message?.imageMessage && !context.quotedMessage?.imageMessage) {
+        if (!msg.message?.imageMessage &&      !msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) {
             throw new Error('Please reply to an image to remove background');
         }
 
