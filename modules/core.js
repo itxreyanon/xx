@@ -142,14 +142,52 @@ class CoreModule {
         return text;
     }
 
-    async restart(msg, params, context) {
-        this.incrementCommandCount('restart');
-        if (this.bot.telegramBridge) {
-            await this.bot.telegramBridge.logToTelegram('🔄 Bot Restart', 'Restart requested by owner.');
-        }
-        setTimeout(() => process.exit(0), 1000);
-        return '🔁 Restarting process...';
+const restartFlagFile = './.restart-flag.json';
+
+async restart(msg, params, context) {
+    this.incrementCommandCount('restart');
+
+    const sent = await context.bot.sendMessage(context.sender, {
+        text: '♻️ *Restarting Bot...*\n\nPlease wait a few seconds...'
+    });
+
+    // Save message details to edit after restart
+    fs.writeFileSync(restartFlagFile, JSON.stringify({
+        chat: context.sender,
+        key: sent.key
+    }));
+
+    // Detect environment
+    const node = process.argv[0];
+    const script = process.argv[1];
+    const isDocker = fs.existsSync('/.dockerenv');
+    const isSystemd = !!process.env.INVOCATION_ID;
+
+    if (!isDocker && !isSystemd) {
+        require('child_process').spawn(node, [script], {
+            detached: true,
+            stdio: 'inherit'
+        });
     }
+
+    setTimeout(() => process.exit(0), 500);
+}
+
+    async init() {
+        if (fs.existsSync(restartFlagFile)) {
+            try {
+                const { chat, key } = JSON.parse(fs.readFileSync(restartFlagFile, 'utf8'));
+                await this.bot.sendMessage(chat, {
+                    text: '✅ *Restart Complete*\n\nBot is now back online.',
+                    edit: key
+                });
+            } catch (err) {
+                console.error('⚠️ Failed to edit restart message:', err);
+            }
+            fs.unlinkSync(restartFlagFile);
+        }
+    }
+
 
     async toggleMode(msg, params, context) {
         const mode = params[0]?.toLowerCase();
