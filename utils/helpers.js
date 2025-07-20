@@ -98,7 +98,9 @@ class Helpers {
                 await bot.sendMessage(sender, { text: finalErrorText });
             }
 
-            throw error;
+            error._handledBySmartError = true;
+throw error;
+
         }
     }
 
