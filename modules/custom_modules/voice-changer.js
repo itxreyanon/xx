@@ -1,4 +1,4 @@
-const messageUtils = require('./helpers/message-utils');
+const messageUtils = require('../../utils/helpers');
 const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
