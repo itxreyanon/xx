@@ -69,7 +69,8 @@ if (quoted) {
 
         // Check if it's a command (only for text messages, not media with captions)
         const prefix = config.get('bot.prefix');
-        const isCommand = text && text.startsWith(prefix) && !this.hasMedia(msg);
+        const isCommand = text && text.startsWith(prefix);
+
         
         // Execute message hooks
         await this.executeMessageHooks('pre_process', msg, text);
@@ -260,15 +261,27 @@ checkPermissions(msg, commandName) {
 }
 
 
-    extractText(msg) {
-        return msg.message?.conversation || 
-               msg.message?.extendedTextMessage?.text || 
-               msg.message?.imageMessage?.caption ||
-               msg.message?.videoMessage?.caption || 
-               msg.message?.documentMessage?.caption ||
-               msg.message?.audioMessage?.caption ||
-               '';
-    }
+extractText(msg) {
+    const quoted =
+        msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.conversation ||
+        msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.extendedTextMessage?.text ||
+        msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage?.caption ||
+        msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.videoMessage?.caption ||
+        msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.documentMessage?.caption ||
+        msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.audioMessage?.caption;
+
+    return (
+        msg.message?.conversation ||
+        msg.message?.extendedTextMessage?.text ||
+        msg.message?.imageMessage?.caption ||
+        msg.message?.videoMessage?.caption ||
+        msg.message?.documentMessage?.caption ||
+        msg.message?.audioMessage?.caption ||
+        quoted ||
+        ''
+    );
+}
+
 }
 
 module.exports = MessageHandler;
