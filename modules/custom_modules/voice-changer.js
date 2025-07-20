@@ -1,4 +1,6 @@
-const messageUtils = require('../../utils/helpers');
+const apiHelper = require('../../utils/api-helper'); 
+const messageUtils = require('../../utils/message-utils');
+
 const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -151,32 +153,33 @@ class VoiceChangersModule {
     }
 
     async applyVoiceEffect(msg, params, context) {
-    const audioMessage = msg.message?.audioMessage || context.quotedMessage?.audioMessage;
-    if (!audioMessage) {
-        throw new Error('Please reply to an audio message to apply voice effects');
+        if (!msg.message?.audioMessage && !context.quotedMessage?.audioMessage) {
+            throw new Error('Please reply to an audio message to apply voice effects');
+        }
+
+        const command = context.command;
+        const audioBuffer = await messageUtils.downloadMedia(msg, this.bot);
+        
+        // Get the appropriate FFmpeg filter for the command
+        const filter = this.getAudioFilter(command);
+        if (!filter) {
+            throw new Error(`Unknown voice effect: ${command}`);
+        }
+
+        const processedAudio = await this.processAudioWithFFmpeg(audioBuffer, filter);
+        
+        // Check if original was a voice note
+        const isVoiceNote = msg.message?.audioMessage?.ptt || context.quotedMessage?.audioMessage?.ptt;
+
+        await this.bot.sendMessage(context.sender, {
+            audio: processedAudio,
+            mimetype: 'audio/mpeg',
+            ptt: isVoiceNote,
+            caption: `🎵 *${this.capitalizeFirst(command)} Effect Applied*`
+        });
+
+        return `✅ *${this.capitalizeFirst(command)} Effect Applied Successfully*`;
     }
-
-    const command = context.command;
-    const messageToDownload = msg.message?.audioMessage ? msg : { message: context.quotedMessage };
-    const audioBuffer = await messageUtils.downloadMedia(messageToDownload, this.bot);
-    
-    const filter = this.getAudioFilter(command);
-    if (!filter) {
-        throw new Error(`Unknown voice effect: ${command}`);
-    }
-
-    const processedAudio = await this.processAudioWithFFmpeg(audioBuffer, filter);
-    const isVoiceNote = audioMessage.ptt;
-
-    await this.bot.sendMessage(context.sender, {
-        audio: processedAudio,
-        mimetype: 'audio/mpeg',
-        ptt: isVoiceNote,
-        caption: `🎵 *${this.capitalizeFirst(command)} Effect Applied*`
-    });
-
-    return `✅ *${this.capitalizeFirst(command)} Effect Applied Successfully*`;
-}
 
     getAudioFilter(command) {
         const filters = {
