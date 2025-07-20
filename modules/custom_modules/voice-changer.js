@@ -152,7 +152,8 @@ class VoiceChangersModule {
     }
 
     async applyVoiceEffect(msg, params, context) {
-        if (!msg.message?.audioMessage && !context.quotedMessage?.audioMessage) {
+        if (!msg.message?.audioMessage && 
+    !msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.audioMessage) {
             throw new Error('Please reply to an audio message to apply voice effects');
         }
 
