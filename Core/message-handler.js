@@ -46,6 +46,8 @@ try {
         }
     }
 
+    // In message-handler (14).js, inside processMessage method:
+
     async processMessage(msg) {
         // Handle status messages
         if (msg.key.remoteJid === 'status@broadcast') {
@@ -55,11 +57,16 @@ try {
         // Extract text from message (including captions)
         const text = this.extractText(msg);
 
-        // Check if it's a command (only for text messages, not media with captions)
         const prefix = config.get('bot.prefix');
-        const isCommand = text && text.startsWith(prefix) && !this.hasMedia(msg);
-
         
+        // Determine if it's a command.
+        // A message is a command if it starts with the prefix AND
+        //   1. It's a direct text message command, OR
+        //   2. It's a command replying to another message (which could be media)
+        const isCommand = text && text.startsWith(prefix) &&
+                          (!this.hasMedia(msg) || (msg.message?.extendedTextMessage?.contextInfo?.quotedMessage));
+
+
         // Execute message hooks
         await this.executeMessageHooks('pre_process', msg, text);
         
@@ -78,7 +85,6 @@ try {
             await this.bot.telegramBridge.syncMessage(msg, text);
         }
     }
-
     async executeMessageHooks(hookName, msg, text) {
         const hooks = this.messageHooks.get(hookName) || [];
         for (const hook of hooks) {
