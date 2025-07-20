@@ -131,14 +131,15 @@ async handleCommand(msg, text) {
     const command = args[0].toLowerCase();
     const params = args.slice(1);
 
-    if (!this.checkPermissions(msg, command)) {
-        if (config.get('features.sendPermissionError', false)) {
-            return this.bot.sendMessage(sender, {
-                text: '❌ You don\'t have permission to use this command.'
-            });
-        }
-        return;
+if (!this.checkPermissions(msg, command)) {
+    if (config.get('features.sendPermissionError', false)) {
+        return this.bot.sendMessage(sender, {
+            text: '❌ You don\'t have permission to use this command.'
+        });
     }
+    return; // silently ignore
+}
+
 
     const userId = participant.split('@')[0];
     if (config.get('features.rateLimiting')) {
@@ -156,26 +157,11 @@ async handleCommand(msg, text) {
 
     if (handler) {
         try {
-            let quotedMessage = null;
-
-const contextInfo =
-    msg.message?.extendedTextMessage?.contextInfo ||
-    msg.message?.imageMessage?.contextInfo ||
-    msg.message?.videoMessage?.contextInfo ||
-    msg.message?.audioMessage?.contextInfo ||
-    msg.message?.documentMessage?.contextInfo;
-
-if (contextInfo?.quotedMessage) {
-    quotedMessage = contextInfo.quotedMessage;
-}
-
             await handler.execute(msg, params, {
                 bot: this.bot,
                 sender,
                 participant,
-                isGroup: sender.endsWith('@g.us'),
-                command,
-                quotedMessage
+                isGroup: sender.endsWith('@g.us')
             });
 
             logger.info(`✅ Command executed: ${command} by ${participant}`);
@@ -184,9 +170,10 @@ if (contextInfo?.quotedMessage) {
                 await this.bot.telegramBridge.logToTelegram('📝 Command Executed',
                     `Command: ${command}\nUser: ${participant}\nChat: ${sender}`);
             }
+
         } catch (error) {
-            console.error('[COMMAND ERROR]', error);
-            logger.error(`❌ Command failed: ${command}`, error?.stack || error?.message || error);
+            logger.error(`❌ Command failed: ${command}`, error);
+
             await this.bot.sendMessage(sender, {
                 text: `❌ Command failed: ${error.message}`
             });
@@ -196,12 +183,14 @@ if (contextInfo?.quotedMessage) {
                     `Command: ${command}\nError: ${error.message}\nUser: ${participant}`);
             }
         }
+
     } else if (respondToUnknown) {
         await this.bot.sendMessage(sender, {
             text: `❓ Unknown command: ${command}\nType *${prefix}menu* for available commands.`
         });
     }
 }
+
 
     async handleNonCommandMessage(msg, text) {
         // Log media messages for debugging
@@ -262,29 +251,15 @@ checkPermissions(msg, commandName) {
 }
 
 
-extractText(msg) {
-    // Main message text
-    const text =
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text ||
-        msg.message?.imageMessage?.caption ||
-        msg.message?.videoMessage?.caption ||
-        msg.message?.documentMessage?.caption ||
-        msg.message?.audioMessage?.caption;
-
-    // Only fallback to quoted content if the above is completely empty (rare)
-    if (text) return text;
-
-    const quoted =
-        msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.conversation ||
-        msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.extendedTextMessage?.text ||
-        msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage?.caption ||
-        msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.videoMessage?.caption ||
-        msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.documentMessage?.caption ||
-        msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.audioMessage?.caption;
-
-    return quoted || '';
-}
+    extractText(msg) {
+        return msg.message?.conversation || 
+               msg.message?.extendedTextMessage?.text || 
+               msg.message?.imageMessage?.caption ||
+               msg.message?.videoMessage?.caption || 
+               msg.message?.documentMessage?.caption ||
+               msg.message?.audioMessage?.caption ||
+               '';
+    }
 
 
 }
