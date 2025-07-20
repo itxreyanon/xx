@@ -185,17 +185,21 @@ class Helpers {
         return 'unknown';
     }
 
-    static async downloadMedia(msg, bot) {
-        try {
-            if (!this.hasMedia(msg)) {
-                throw new Error('No media found in message');
-            }
-            return await bot.sock.downloadMediaMessage(msg);
-        } catch (error) {
-            logger.error('Failed to download media:', error);
-            throw error;
+static async downloadMedia(msg, bot, quotedMessage = null) {
+    try {
+        const target = quotedMessage || msg;
+
+        if (!this.hasMedia(target)) {
+            throw new Error('No media found in message');
         }
+
+        return await bot.sock.downloadMediaMessage(target);
+    } catch (error) {
+        logger.error('Failed to download media:', error);
+        throw error;
     }
+}
+
 
     // ──────────── Bot Error Wrapper ────────────
 
