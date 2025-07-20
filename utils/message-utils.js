@@ -23,29 +23,28 @@ class MessageUtils {
         );
     }
 
-    static getMediaType(msg) {
-        if (msg.message?.imageMessage) return 'image';
-        if (msg.message?.videoMessage) return 'video';
-        if (msg.message?.audioMessage) return 'audio';
-        if (msg.message?.documentMessage) return 'document';
-        if (msg.message?.stickerMessage) return 'sticker';
-        if (msg.message?.locationMessage) return 'location';
-        if (msg.message?.contactMessage) return 'contact';
-        return 'unknown';
-    }
+static getMediaType(msg) {
+    if (!msg || !msg.message) return null;
+    if (msg.message.imageMessage) return 'image';
+    if (msg.message.videoMessage) return 'video';
+    if (msg.message.audioMessage) return 'audio';
+    if (msg.message.documentMessage) return 'document';
+    if (msg.message.stickerMessage) return 'sticker';
+    if (msg.message.locationMessage) return 'location';
+    if (msg.message.contactMessage) return 'contact';
+    return null;
+}
 
-    static async downloadMedia(msg, bot, quotedMessage = null) {
+
+    static async downloadMedia(msg, bot) {
     try {
-        const target = quotedMessage || msg;
-
-        if (!this.hasMedia(target)) {
-            throw new Error('No media found in message');
-        }
-
-        return await bot.sock.downloadMediaMessage(target);
+        if (!this.hasMedia(msg)) return null;
+        const buffer = await bot.sock.downloadMediaMessage(msg);
+        if (!buffer || !Buffer.isBuffer(buffer)) return null;
+        return buffer;
     } catch (error) {
         logger.error('Failed to download media:', error);
-        throw error;
+        return null; // don't throw; let calling code decide
     }
 }
 
