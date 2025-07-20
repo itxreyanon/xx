@@ -125,7 +125,8 @@ class CoreModule {
         const start = Date.now();
         const latency = Date.now() - start;
         this.incrementCommandCount('ping');
-        return `🏓 *Pong!*\n\nLatency: ${latency}ms}`;
+      return ` *Pong!* • 📡 Latency: ${latency}ms`;
+
     }
 
     async status(msg, params, context) {
