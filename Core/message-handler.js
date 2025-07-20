@@ -54,21 +54,6 @@ try {
 
         // Extract text from message (including captions)
         const text = this.extractText(msg);
-        
-// Attach quoted message and type for easier access in modules
-const context = msg.message?.extendedTextMessage?.contextInfo;
-const quoted = context?.quotedMessage || null;
-
-if (quoted) {
-    msg.quoted = quoted;
-    msg.quotedType = Object.keys(quoted)[0];
-    msg.quotedKey = {
-        remoteJid: msg.key.remoteJid,
-        fromMe: context.participant === this.bot.user.id,
-        id: context.stanzaId,
-        participant: context.participant
-    };
-}
 
         // Check if it's a command (only for text messages, not media with captions)
         const prefix = config.get('bot.prefix');
