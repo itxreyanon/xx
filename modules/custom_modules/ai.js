@@ -215,7 +215,7 @@ class AIUtilitiesModule {
             throw new Error('Please reply to an image to extract text');
         }
 
-        const imageBuffer = await messageUtils.downloadMedia(msg, this.bot);
+        const imageBuffer = await helpers.downloadMedia(msg, this.bot);
         const imageUrl = await this.uploadImageToService(imageBuffer);
 
         const result = await apiHelper.neoxrApi('/ocr', { image: imageUrl });
@@ -232,7 +232,7 @@ class AIUtilitiesModule {
             throw new Error('Please reply to an image to identify objects');
         }
 
-        const imageBuffer = await messageUtils.downloadMedia(msg, this.bot);
+        const imageBuffer = await helpers.downloadMedia(msg, this.bot);
         const imageUrl = await this.uploadImageToService(imageBuffer);
 
         const result = await apiHelper.neoxrApi('/gemini-vision', { 
@@ -252,7 +252,7 @@ class AIUtilitiesModule {
             throw new Error('Please reply to an image to enhance');
         }
 
-        const imageBuffer = await messageUtils.downloadMedia(msg, this.bot);
+        const imageBuffer = await helpers.downloadMedia(msg, this.bot);
         const imageUrl = await this.uploadImageToService(imageBuffer);
 
         const result = await apiHelper.neoxrApi('/remini', { image: imageUrl });
