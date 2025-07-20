@@ -142,33 +142,34 @@ class CoreModule {
         this.incrementCommandCount('status');
         return text;
     }
+async restart(msg, params, context) {
+    this.incrementCommandCount('restart');
 
+    if (this.bot.telegramBridge) {
+        await this.bot.telegramBridge.logToTelegram('🔁 Bot Restart', 'Restart requested by owner.');
+    }
 
+    await context.bot.sendMessage(context.sender, {
+        text: '♻️ *Restarting Bot...*\n\nPlease wait a few seconds...'
+    });
 
-    async restart(msg, params, context) {
-        this.incrementCommandCount('restart');
-        await Helpers.smartErrorRespond(this.bot, msg, {
-            processingText: '♻️ Restarting...',
-            actionFn: async () => {
-                fs.writeFileSync(restartFlagFile, JSON.stringify({
-                    chat: context.sender,
-                    key: msg.key
-                }));
-                const isDocker = fs.existsSync('/.dockerenv');
-                const isSystemd = !!process.env.INVOCATION_ID;
+    const node = process.argv[0];
+    const script = process.argv[1];
 
-                if (!isDocker && !isSystemd) {
-                    spawn(process.argv[0], [process.argv[1]], {
-                        detached: true,
-                        stdio: 'inherit'
-                    });
-                }
+    const isDocker = fs.existsSync('/.dockerenv');
+    const isSystemd = !!process.env.INVOCATION_ID;
 
-                setTimeout(() => process.exit(0), 300);
-            }
+    if (!isDocker && !isSystemd) {
+        // 🟢 Normal: node bot.js (spawn a fresh one)
+        spawn(node, [script], {
+            detached: true,
+            stdio: 'inherit'
         });
     }
 
+    // 🔴 In Docker/systemd: just exit — external manager will restart it
+    setTimeout(() => process.exit(0), 500);
+}
     async toggleMode(msg, params, context) {
         const mode = params[0]?.toLowerCase();
         if (!['public', 'private'].includes(mode)) {
@@ -266,20 +267,7 @@ class CoreModule {
             });
         });
     }
-    async init() {
-        if (fs.existsSync(restartFlagFile)) {
-            try {
-                const { chat, key } = JSON.parse(fs.readFileSync(restartFlagFile, 'utf8'));
-                await this.bot.sendMessage(chat, {
-                    text: '✅ *Restart Complete*\n\nBot is now back online.',
-                    edit: key
-                });
-            } catch (err) {
-                console.error('[CORE] Failed to restore restart message:', err.message);
-            }
-            fs.unlinkSync(restartFlagFile);
-        }
-    }
+
     getUptime() {
         const sec = Math.floor((Date.now() - this.startTime) / 1000);
         const d = Math.floor(sec / 86400);
