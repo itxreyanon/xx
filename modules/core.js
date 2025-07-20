@@ -143,34 +143,15 @@ class CoreModule {
         this.incrementCommandCount('status');
         return text;
     }
-async restart(msg, params, context) {
-    this.incrementCommandCount('restart');
-
-    if (this.bot.telegramBridge) {
-        await this.bot.telegramBridge.logToTelegram('🔁 Bot Restart', 'Restart requested by owner.');
+    async restart(msg, params, context) {
+        await context.bot.sendMessage(context.sender, { text: '🔄 *Restarting Bot...*\n\n⏳ Please wait...' });
+        if (this.bot.telegramBridge) {
+            await this.bot.telegramBridge.logToTelegram('🔄 Bot Restart', 'Initiated by owner');
+        }
+        setTimeout(() => process.exit(0), 1000); // Assuming PM2 or similar restarts the process
+        this.incrementCommandCount('restart');
     }
 
-    await context.bot.sendMessage(context.sender, {
-        text: '♻️ *Restarting Bot...*\n\nPlease wait a few seconds...'
-    });
-
-    const node = process.argv[0];
-    const script = process.argv[1];
-
-    const isDocker = fs.existsSync('/.dockerenv');
-    const isSystemd = !!process.env.INVOCATION_ID;
-
-    if (!isDocker && !isSystemd) {
-        // 🟢 Normal: node bot.js (spawn a fresh one)
-        spawn(node, [script], {
-            detached: true,
-            stdio: 'inherit'
-        });
-    }
-
-    // 🔴 In Docker/systemd: just exit — external manager will restart it
-    setTimeout(() => process.exit(0), 500);
-}
     async toggleMode(msg, params, context) {
         const mode = params[0]?.toLowerCase();
         if (!['public', 'private'].includes(mode)) {
