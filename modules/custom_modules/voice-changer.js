@@ -152,10 +152,13 @@ class VoiceChangersModule {
     }
 
     async applyVoiceEffect(msg, params, context) {
-        if (!msg.message?.audioMessage && 
-    !msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.audioMessage) {
-            throw new Error('Please reply to an audio message to apply voice effects');
-        }
+        const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+const quoted = contextInfo?.quotedMessage;
+if (!quoted?.audioMessage && !msg.message?.audioMessage) {
+    return this.bot.sendMessage(context.sender, {
+        text: '⚠️ Please *reply* to an audio message or send an audio message.'
+    }, { quoted: msg });
+}
 
         const command = context.command;
         const audioBuffer = await messageUtils.downloadMedia(msg, this.bot);
