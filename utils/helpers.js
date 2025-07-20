@@ -196,32 +196,7 @@ class Helpers {
             throw error;
         }
     }
-async function downloadMedia(msg, bot) {
-    try {
-        // Check if message has media
-        if (!msg.message || !(
-            msg.message.imageMessage ||
-            msg.message.videoMessage ||
-            msg.message.audioMessage ||
-            msg.message.documentMessage ||
-            msg.message.stickerMessage ||
-            msg.message.locationMessage ||
-            msg.message.contactMessage
-        )) {
-            throw new Error('No media found in message');
-        }
 
-        // Ensure bot.sock exists and has downloadMediaMessage
-        if (!bot || !bot.sock || typeof bot.sock.downloadMediaMessage !== 'function') {
-            throw new Error('Invalid bot socket: downloadMediaMessage not available');
-        }
-
-        return await bot.sock.downloadMediaMessage(msg);
-    } catch (error) {
-        logger.error('Failed to download media:', error);
-        throw error;
-    }
-}
     // ──────────── Bot Error Wrapper ────────────
 
     static async smartErrorRespond(bot, originalMsg, options = {}) {
