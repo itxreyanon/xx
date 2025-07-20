@@ -37,13 +37,6 @@ class CoreCommands {
                 execute: this.restart.bind(this)
             },
             {
-                name: 'sync',
-                description: 'Sync contacts from WhatsApp',
-                usage: '.sync',
-                permissions: 'public',
-                execute: this.sync.bind(this)
-            },
-            {
                 name: 'mode',
                 description: 'Toggle bot mode between public and private',
                 usage: '.mode [public|private]',
@@ -71,13 +64,6 @@ class CoreCommands {
                 permissions: 'owner',
                 execute: this.broadcast.bind(this)
             },
-            {
-                name: 'stats',
-                description: 'Show bot usage statistics',
-                usage: '.stats',
-                permissions: 'public',
-                execute: this.stats.bind(this)
-            }
         ];
         this.startTime = Date.now();
         this.commandCounts = new Map();
@@ -116,19 +102,6 @@ class CoreCommands {
         }
         setTimeout(() => process.exit(0), 1000); // Assuming PM2 or similar restarts the process
         this.incrementCommandCount('restart');
-    }
-
-    async sync(msg, params, context) {
-        if (!this.bot.telegramBridge) {
-            await context.bot.sendMessage(context.sender, { text: '❌ Telegram bridge not enabled' });
-            return;
-        }
-        await context.bot.sendMessage(context.sender, { text: '📞 *Syncing Contacts...*\n\n⏳ Please wait...' });
-        await this.bot.telegramBridge.syncContacts();
-        await context.bot.sendMessage(context.sender, {
-            text: `✅ *Contact Sync Complete*\n\n📞 Synced ${this.bot.telegramBridge.contactMappings.size} contacts`
-        });
-        this.incrementCommandCount('sync');
     }
 
     async toggleMode(msg, params, context) {
@@ -230,24 +203,6 @@ class CoreCommands {
     }
 
     
-
-    async stats(msg, params, context) {
-        const totalCommands = Array.from(this.commandCounts.values()).reduce((a, b) => a + b, 0);
-        const commandBreakdown = Array.from(this.commandCounts.entries())
-            .map(([cmd, count]) => `  • \`${cmd}\`: ${count}`)
-            .join('\n');
-        const messageCount = this.bot.telegramBridge?.userMappings.entries()
-            .reduce((sum, [_, user]) => sum + (user.messageCount || 0), 0) || 0;
-        const statsText = `📊 *Bot Statistics*\n\n` +
-                          `📟 Total Commands: ${totalCommands}\n` +
-                          `📋 Command Breakdown:\n${commandBreakdown || '  • None'}\n` +
-                          `💬 Total Messages: ${messageCount}\n` +
-                          `📞 Active Chats: ${this.bot.telegramBridge?.chatMappings.size || 0}\n` +
-                          `👥 Contacts: ${this.bot.telegramBridge?.contactMappings.size || 0}`;
-        await context.bot.sendMessage(context.sender, { text: statsText });
-        this.incrementCommandCount('stats');
-    }
-
     getUptime() {
         const seconds = Math.floor((Date.now() - this.startTime) / 1000);
         const days = Math.floor(seconds / (3600 * 24));
