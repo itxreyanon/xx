@@ -1,5 +1,6 @@
 const apiHelper = require('../../utils/api-helper');
-const messageUtils = require('../../utils/helpers');
+const messageUtils = require('../../utils/message-utils');
+
 
 class DownloadersModule {
     constructor(bot) {
