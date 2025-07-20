@@ -72,7 +72,7 @@ if (quoted) {
 
         // Check if it's a command (only for text messages, not media with captions)
         const prefix = config.get('bot.prefix');
-        const isCommand = text && text.startsWith(prefix);
+        const isCommand = text && text.startsWith(prefix) && !this.hasMedia(msg);
 
         
         // Execute message hooks
