@@ -15,54 +15,69 @@ class ModuleLoader {
 
     setupModuleCommands() {
         // Load Module Command
-        const loadModuleCommand = {
-            name: 'lm',
-            description: 'Load a module from file',
-            usage: '.lm (reply to a .js file)',
-            permissions: 'owner',
-            execute: async (msg, params, context) => {
-                if (!msg.message?.documentMessage?.fileName?.endsWith('.js')) {
-                    return context.bot.sendMessage(context.sender, {
-                        text: '🔧 *Load Module*\n\n❌ Please reply to a JavaScript (.js) file to load it as a module.'
-                    });
-                }
+const loadModuleCommand = {
+    name: 'lm',
+    description: 'Load a module from file (replaces if it already exists)',
+    usage: '.lm (reply to a .js file)',
+    permissions: 'owner',
+    execute: async (msg, params, context) => {
+        const docMsg = msg.message?.documentMessage;
 
-                try {
-                    const processingMsg = await context.bot.sendMessage(context.sender, {
-                        text: '⚡ *Loading Module*\n\n🔄 Downloading and installing module...\n⏳ Please wait...'
-                    });
+        if (!docMsg) {
+            return context.bot.sendMessage(context.sender, {
+                text: '🔧 *Load Module*\n\n❌ Please reply to a valid JavaScript (.js) file.'
+            });
+        }
 
-                    const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-                    const stream = await downloadContentFromMessage(msg.message.documentMessage, 'document');
-                    
-                    const chunks = [];
-                    for await (const chunk of stream) {
-                        chunks.push(chunk);
-                    }
-                    const buffer = Buffer.concat(chunks);
-                    
-                    const fileName = msg.message.documentMessage.fileName;
-                    const customModulesPath = path.join(__dirname, '../custom_modules');
-                    await fs.ensureDir(customModulesPath);
-                    
-                    const filePath = path.join(customModulesPath, fileName);
-                    await fs.writeFile(filePath, buffer);
-                    
-                    await this.loadModule(filePath, false);
-                    
-                    await context.bot.sock.sendMessage(context.sender, {
-                        text: `✅ *Module Loaded Successfully*\n\n📦 Module: \`${fileName}\`\n📁 Location: Custom Modules\n🎯 Status: Active\n⏰ ${new Date().toLocaleTimeString()}`,
-                        edit: processingMsg.key
-                    });
+        const mime = docMsg.mimetype;
+        const rawFileName = docMsg.fileName || 'module';
+        const fileName = rawFileName.endsWith('.js') ? rawFileName : `${rawFileName}.js`;
 
-                } catch (error) {
-                    logger.error('Failed to load module:', error);
-                    await context.bot.sendMessage(context.sender, {
-                        text: `❌ *Module Load Failed*\n\n🚫 Error: ${error.message}\n🔧 Please check the module file format.`
-                    });
-                }
+        if (!fileName.endsWith('.js') && mime !== 'application/javascript' && mime !== 'application/ecmascript') {
+            return context.bot.sendMessage(context.sender, {
+                text: `🔧 *Load Module*\n\n❌ Invalid file type. Please reply to a valid JavaScript (.js) file.\n\n📄 Detected MIME: \`${mime || 'unknown'}\``
+            });
+        }
+
+        try {
+            const processingMsg = await context.bot.sendMessage(context.sender, {
+                text: '⚡ *Loading Module*\n\n🔄 Downloading and preparing module...\n⏳ Please wait...'
+            });
+
+            const stream = await downloadContentFromMessage(docMsg, 'document');
+            const chunks = [];
+            for await (const chunk of stream) chunks.push(chunk);
+            const buffer = Buffer.concat(chunks);
+
+            const customModulesPath = path.join(__dirname, '../custom_modules');
+            await fs.ensureDir(customModulesPath);
+            const filePath = path.join(customModulesPath, fileName);
+
+            // Save (overwrite if exists)
+            await fs.writeFile(filePath, buffer);
+
+            const moduleName = fileName.replace(/\.js$/, '');
+            const existing = this.modules?.[moduleName];
+
+            if (existing) {
+                await this.reloadModule(moduleName);
+            } else {
+                await this.loadModule(filePath, false);
             }
-        };
+
+            await context.bot.sock.sendMessage(context.sender, {
+                text: `✅ *Module Loaded Successfully*\n\n📦 Module: \`${fileName}\`\n📁 Location: Custom Modules\n🔁 Status: ${existing ? 'Replaced' : 'Newly Loaded'}\n⏰ ${new Date().toLocaleTimeString()}`,
+                edit: processingMsg.key
+            });
+
+        } catch (error) {
+            logger.error('Failed to load module:', error);
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ *Module Load Failed*\n\n🚫 Error: ${error.message}\n📄 Please ensure the file is a valid module script.`
+            });
+        }
+    }
+};
 
         // Unload Module Command
         const unloadModuleCommand = {
@@ -211,14 +226,10 @@ class ModuleLoader {
             }
         }
 
-        // Load help system after all modules
-        this.setupHelpSystem();
+logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 Custom: ${this.customModulesCount} || 📊 Total: ${this.systemModulesCount + this.customModulesCount}`);
 
-        logger.info(`✅ Loaded ${this.systemModulesCount} System Modules.`);
-        logger.info(`✅ Loaded ${this.customModulesCount} Custom Modules.`);
-        logger.info(`✅ Total Modules Loaded: ${this.systemModulesCount + this.customModulesCount}`);
     }
-
+        // Load help system after all modules
     setupHelpSystem() {
         const helpCommand = {
             name: 'help',
@@ -367,19 +378,24 @@ class ModuleLoader {
                     }
 
                     const ui = cmd.ui || {};
+const wrappedCmd = cmd.autoWrap === false ? cmd : {
+    ...cmd,
+    execute: async (msg, params, context) => {
+        const options = {
+            actionFn: async () => await cmd.execute(msg, params, context)
+        };
 
-                    const wrappedCmd = cmd.autoWrap === false ? cmd : {
-                        ...cmd,
-                        execute: async (msg, params, context) => {
-                            await helpers.smartErrorRespond(context.bot, msg, {
-                                processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
-                                errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
-                                actionFn: async () => {
-                                    return await cmd.execute(msg, params, context);
-                                }
-                            });
-                        }
-                    };
+        if (ui.processingText) {
+            options.processingText = ui.processingText;
+        }
+
+        if (ui.errorText) {
+            options.errorText = ui.errorText;
+        }
+
+        await helpers.smartErrorRespond(context.bot, msg, options);
+    }
+};
 
                     this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
                 }
@@ -401,11 +417,13 @@ class ModuleLoader {
             } else {
                 this.customModulesCount++;
             }
+} catch (err) {
+    logger.error(`❌ Failed to load module '${moduleId}' from ${filePath}`);
+    logger.error(`Error name: ${err.name}`);
+    logger.error(`Error message: ${err.message}`);
+    logger.error(`Error stack:\n${err.stack}`);
+}
 
-            logger.info(`✅ Loaded ${isSystem ? 'System' : 'Custom'} module: ${actualModuleId}`);
-        } catch (err) {
-            logger.error(`❌ Failed to load module '${moduleId}' from ${filePath}:`, err);
-        }
     }
 
     getModule(name) {
