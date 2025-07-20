@@ -184,37 +184,37 @@ class ModuleLoader {
         this.bot.messageHandler.registerCommandHandler('modules', listModulesCommand);
     }
 
-    async loadModules() {
-        const systemPath = path.join(__dirname, '../modules');
-        const customPath = path.join(__dirname, '../custom_modules');
+async loadModules() {
+    const systemPath = path.join(__dirname, '../modules');
+    const customPath = path.join(__dirname, '../custom_modules');
 
-        await fs.ensureDir(systemPath);
-        await fs.ensureDir(customPath);
+    await fs.ensureDir(systemPath);
+    await fs.ensureDir(customPath);
 
-        const [systemFiles, customFiles] = await Promise.all([
-            fs.readdir(systemPath),
-            fs.readdir(customPath)
-        ]);
+    const [systemFiles, customFiles] = await Promise.all([
+        fs.readdir(systemPath),
+        fs.readdir(customPath)
+    ]);
 
-        this.systemModulesCount = 0;
-        this.customModulesCount = 0;
+    this.systemModulesCount = 0;
+    this.customModulesCount = 0;
 
-        for (const file of systemFiles) {
-            if (file.endsWith('.js')) {
-                await this.loadModule(path.join(systemPath, file), true);
-            }
+    for (const file of systemFiles) {
+        if (file.endsWith('.js')) {
+            await this.loadModule(path.join(systemPath, file), true);
         }
+    }
 
-        for (const file of customFiles) {
-            if (file.endsWith('.js')) {
-                await this.loadModule(path.join(customPath, file), false);
-            }
+    for (const file of customFiles) {
+        if (file.endsWith('.js')) {
+            await this.loadModule(path.join(customPath, file), false);
         }
+    }
+logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 Custom: ${this.customModulesCount} || 📊 Total: ${this.systemModulesCount + this.customModulesCount}`);
+
 
         // Load help system after all modules
         this.setupHelpSystem();
-
-logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 Custom: ${this.customModulesCount} || 📊 Total: ${this.systemModulesCount + this.customModulesCount}`);
 
     }
 
