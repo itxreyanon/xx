@@ -35,13 +35,7 @@ constructor() {
         },
             mongo: {
                 uri: 'mongodb+srv://itxelijah07:ivp8FYGsbVfjQOkj@cluster0.wh25x.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0',
-                dbName: 'HyperWAxzaq'
-            },
-            security: {
-                maxCommandsPerMinute: 10,
-                maxDownloadsPerHour: 20,
-                allowedDomains: ['youtube.com', 'instagram.com', 'tiktok.com'],
-                blockedUsers: []
+                dbName: 'HyperWALex'
             },
             telegram: {
                 enabled: true,
