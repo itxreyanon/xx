@@ -1,54 +1,50 @@
 const config = require('../config');
 
 class Helpers {
-   static async smartErrorRespond(bot, originalMsg, options = {}) {
+    static async smartErrorRespond(bot, originalMsg, options = {}) {
   const {
     actionFn = () => { throw new Error('No action provided'); },
-    errorText     = '❌ Something went wrong.',
-    processingText,                // ← always comes from your loader now
-    autoReact     = true,
-    // note: we’re ignoring selfEdit/editMessages flags here
+    errorText = '❌ Something went wrong.',
+    autoReact = true,
+    processingText,
   } = options;
 
   if (!bot?.sock?.sendMessage || !originalMsg?.key?.remoteJid) return;
 
-  const jid  = originalMsg.key.remoteJid;
+  const jid = originalMsg.key.remoteJid;
   const isMe = originalMsg.key.fromMe === true;
+  const cmdName = (originalMsg.message?.conversation || originalMsg.message?.extendedTextMessage?.text || '.')
+                   .trim().split(/\s+/)[0];
 
-  // 1) spinner react
+  // 1) React if desired
   if (autoReact) {
-    await bot.sock.sendMessage(jid, {
-      react: { key: originalMsg.key, text: '⏳' }
-    });
+    await bot.sock.sendMessage(jid, { react: { key: originalMsg.key, text: '⏳' } });
   }
 
-  // 2) show processingText (no fallback needed)
+  // 2) Show “processing…”
+  const procText = processingText
+    || (isMe ? '⏳ Processing...' : `⏳ Running *${cmdName}*...`);
+
   let procKey = originalMsg.key;
   if (isMe) {
-    // edit the bot’s own message
-    await bot.sock.sendMessage(jid, {
-      text: processingText,
-      edit: originalMsg.key
-    });
+    // edit original
+    await bot.sock.sendMessage(jid, { text: procText, edit: originalMsg.key });
   } else {
-    // send a new message for users
-    const m = await bot.sock.sendMessage(jid, { text: processingText });
+    // send new
+    const m = await bot.sock.sendMessage(jid, { text: procText });
     procKey = m.key;
   }
 
   try {
-    // 3) run the command
+    // 3) Run the command
     const res = await actionFn();
 
-    // 4) clear spinner
+    // 4) Clear react
     if (autoReact) {
-      await this.sleep(500);
-      await bot.sock.sendMessage(jid, {
-        react: { key: originalMsg.key, text: '' }
-      });
+      await bot.sock.sendMessage(jid, { react: { key: originalMsg.key, text: '' } });
     }
 
-    // 5) edit with the result
+    // 5) Edit with result
     await bot.sock.sendMessage(jid, {
       text: typeof res === 'string' ? res : JSON.stringify(res, null, 2),
       edit: procKey
@@ -56,23 +52,20 @@ class Helpers {
 
     return res;
 
-  } catch (error) {
-    // on error: edit in your errorText
+  } catch (err) {
+    // on error
     if (autoReact) {
-      await bot.sock.sendMessage(jid, {
-        react: { key: originalMsg.key, text: '❌' }
-      });
+      await bot.sock.sendMessage(jid, { react: { key: originalMsg.key, text: '❌' } });
     }
     await bot.sock.sendMessage(jid, {
       text: `${errorText}${err.message ? `\n\n🔍 ${err.message}` : ''}`,
       edit: procKey
     });
-error._handledBySmartor = true;
-throw error;
-
-
+    throw err;
   }
 }
+
+
 
 
 
