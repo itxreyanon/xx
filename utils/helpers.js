@@ -43,21 +43,27 @@ class Helpers {
             }
 
 // ✅ Force show "processing"
-if (selfEdit && isFromSelf) {
-    // Bot editing its own message
-    console.log('[smartErrorRespond] Editing own message');
-    await bot.sock.sendMessage(sender, {
-        text: processingText,
-        edit: originalMsg.key
-    });
-    processingMsgKey = originalMsg.key;
-} else if (editMessages) {
-    // Reply to others with new message
-    console.log('[smartErrorRespond] Sending new processing message');
-    const processingMsg = await bot.sock.sendMessage(sender, {
-        text: processingText
-    });
-    processingMsgKey = processingMsg.key;
+// ✅ Step 3: Show "processing"
+console.log('[DEBUG] entering processing block...');
+try {
+    if (originalMsg.key.fromMe && selfEdit) {
+        console.log('[DEBUG] Editing self message');
+        await bot.sock.sendMessage(sender, {
+            text: processingText,
+            edit: originalMsg.key
+        });
+        processingMsgKey = originalMsg.key;
+    } else if (editMessages) {
+        console.log('[DEBUG] Sending new message for user');
+        const processingMsg = await bot.sock.sendMessage(sender, {
+            text: processingText
+        });
+        processingMsgKey = processingMsg.key;
+    } else {
+        console.log('[DEBUG] Not sending processing message (editMessages is false)');
+    }
+} catch (e) {
+    console.error('[ERROR sending processing message]', e);
 }
 
             // ✅ Step 4: Run command
