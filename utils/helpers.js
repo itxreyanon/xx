@@ -1,7 +1,7 @@
 const config = require('../config');
 
 class Helpers {
-    static async smartErrorRespond(bot, originalMsg, options = {}) {
+   static async smartErrorRespond(bot, originalMsg, options = {}) {
   const {
     actionFn = () => { throw new Error('No action provided'); },
     processingText = '⏳ Processing...',
@@ -12,34 +12,44 @@ class Helpers {
   if (!bot?.sock?.sendMessage || !originalMsg?.key?.remoteJid) return;
 
   const jid = originalMsg.key.remoteJid;
-  const isMe = originalMsg.key.fromMe === true;
-  let procKey = originalMsg.key;
+  const isFromBot = originalMsg.key.fromMe === true;
+  let procKey;
 
-  // 1. React with spinner
+  // 1. React to original message
   if (autoReact) {
     await bot.sock.sendMessage(jid, {
       react: { key: originalMsg.key, text: '⏳' }
     });
   }
 
-  // 2. Always edit instead of sending new message
-  await bot.sock.sendMessage(jid, {
-    text: processingText,
-    edit: procKey
-  });
+  // 2. Send or edit a processing message
+  if (isFromBot) {
+    // Edit bot's original message
+    await bot.sock.sendMessage(jid, {
+      text: processingText,
+      edit: originalMsg.key
+    });
+    procKey = originalMsg.key;
+  } else {
+    // Send new "Running..." message and track that
+    const sent = await bot.sock.sendMessage(jid, {
+      text: processingText
+    });
+    procKey = sent.key;
+  }
 
   try {
-    // 3. Execute
+    // 3. Execute action
     const result = await actionFn();
 
     if (autoReact) {
-      await this.sleep(300);
+      await this.sleep(200);
       await bot.sock.sendMessage(jid, {
         react: { key: originalMsg.key, text: '' }
       });
     }
 
-    // 4. Edit back result
+    // 4. Edit processing message with result
     await bot.sock.sendMessage(jid, {
       text: typeof result === 'string'
         ? result
@@ -56,7 +66,6 @@ class Helpers {
       });
     }
 
-    // 5. Edit back error
     await bot.sock.sendMessage(jid, {
       text: `${errorText}${error.message ? `\n\n🔍 ${error.message}` : ''}`,
       edit: procKey
@@ -66,7 +75,6 @@ class Helpers {
     throw error;
   }
 }
-
 
 
     static async sendCommandResponse(bot, originalMsg, responseText) {
