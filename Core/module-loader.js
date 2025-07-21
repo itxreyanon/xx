@@ -365,11 +365,24 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
         continue;
     }
 
-    const wrapped = this.wrapCommand(cmd);
-    this.bot.messageHandler.registerCommandHandler(wrapped.name, wrapped);
-}
+                    const ui = cmd.ui || {};
 
-}
+                    const wrappedCmd = cmd.autoWrap === false ? cmd : {
+                        ...cmd,
+                        execute: async (msg, params, context) => {
+                            await helpers.smartErrorRespond(context.bot, msg, {
+                                processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
+                                errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
+                                actionFn: async () => {
+                                    return await cmd.execute(msg, params, context);
+                                }
+                            });
+                        }
+                    };
+
+                    this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
+                }
+            }
             if (moduleInstance.messageHooks && typeof moduleInstance.messageHooks === 'object' && moduleInstance.messageHooks !== null) {
                 for (const [hook, fn] of Object.entries(moduleInstance.messageHooks)) {
                     this.bot.messageHandler.registerMessageHook(hook, fn.bind(moduleInstance));
@@ -404,24 +417,6 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
         return [...this.modules.keys()];
     }
     
-wrapCommand(cmd) {
-    const ui = cmd.ui || {};
-    if (cmd.autoWrap === false) return cmd;
-
-    return {
-        ...cmd,
-        execute: async (msg, params, context) => {
-            await helpers.smartErrorRespond(context.bot, msg, {
-                processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
-                errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
-                actionFn: async () => {
-                    return await cmd.execute(msg, params, context);
-                }
-            });
-        }
-    };
-}
-
     async unloadModule(moduleId) {
         const moduleInfo = this.modules.get(moduleId);
         if (!moduleInfo) {
