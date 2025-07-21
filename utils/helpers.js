@@ -171,7 +171,7 @@ class Helpers {
     }
 
     static sleep(ms) {
-        return new Promise(resolve => setTimeout(resolve, Math.max(0, ms));
+        return new Promise(resolve => setTimeout(resolve, Math.max(0, ms))); // Added missing ')'
     }
 }
 
