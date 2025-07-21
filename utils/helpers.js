@@ -1,5 +1,4 @@
 const config = require('../config');
-
 class Helpers {
   static async smartErrorRespond(bot, originalMsg, options = {}) {
     const {
