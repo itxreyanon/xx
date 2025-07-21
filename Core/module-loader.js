@@ -365,21 +365,23 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
         continue;
     }
 
-const ui = cmd.ui || {}; // This ui variable is good practice for default values.
 
-const wrappedCmd = cmd.metadata ? {
-  ...cmd,
-  execute: async (msg, params, context) => {
-    return await helpers.smartErrorRespond(context.bot, msg, {
-      // It's good you're using cmd.ui?.processingText here, it's equivalent to ui.processingText if ui is defined.
-      processingText: cmd.ui?.processingText || `⏳ Running *${cmd.name}*...`,
-      errorText: cmd.ui?.errorText || `❌ *${cmd.name}* failed.`,
-      // THIS IS THE LINE THAT IS STILL MISSING OR INCORRECT IN YOUR MODULELOADER
-      manageMessageLifecycle: true, // <--- ADD THIS LINE
-      actionFn: () => cmd.execute(msg, params, context)
-    });
-  }
-} : cmd; // This branch means if cmd.metadata is false, it's not a structured module managed by smartErrorRespond.
+                    const ui = cmd.ui || {};
+
+                    const wrappedCmd = cmd.autoWrap === false ? cmd : {
+                        ...cmd,
+                        execute: async (msg, params, context) => {
+                            await helpers.smartErrorRespond(context.bot, msg, {
+                                processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
+                                errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
+                                actionFn: async () => {
+                                    return await cmd.execute(msg, params, context);
+                                }
+                            });
+                        }
+                    };
+
+
                     this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
                 }
             }
