@@ -121,63 +121,6 @@ class MessageHandler {
         }
     }
 
-async runWithSmartUI(msg, {
-  processingText = '⏳ Running...',
-  errorText = '❌ Failed to execute command.',
-  actionFn = () => {},
-}) {
-  const isMe = msg.key.fromMe === true;
-  const jid = msg.key.remoteJid;
-  let editKey = msg.key;
-
-  // ⏳ React to command message
-  await this.bot.sock.sendMessage(jid, {
-    react: { key: msg.key, text: '⏳' }
-  });
-
-  // Send processing message
-  if (isMe) {
-    await this.bot.sock.sendMessage(jid, {
-      text: processingText,
-      edit: msg.key
-    });
-  } else {
-    const processingMsg = await this.bot.sock.sendMessage(jid, { text: processingText });
-    editKey = processingMsg.key;
-  }
-
-  try {
-    const result = await actionFn();
-
-    // ✅ Remove reaction
-    await this.bot.sock.sendMessage(jid, {
-      react: { key: msg.key, text: '' }
-    });
-
-    // ✅ Final output
-    if (result) {
-      await this.bot.sock.sendMessage(jid, {
-        text: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
-        edit: editKey
-      });
-    }
-
-    return result;
-
-  } catch (err) {
-    await this.bot.sock.sendMessage(jid, {
-      react: { key: msg.key, text: '❌' }
-    });
-
-    await this.bot.sock.sendMessage(jid, {
-      text: `${errorText}${err.message ? `\n\n🔍 ${err.message}` : ''}`,
-      edit: editKey
-    });
-
-    throw err;
-  }
-}
-
 async handleCommand(msg, text) {
     const sender = msg.key.remoteJid;
     const participant = msg.key.participant || sender;
