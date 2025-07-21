@@ -365,19 +365,22 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
         continue;
     }
 
-                   const ui = cmd.ui || {};
+const ui = cmd.ui || {}; // Keep this line as it captures cmd.ui or an empty object
 
 const wrappedCmd = cmd.metadata ? {
   ...cmd,
   execute: async (msg, params, context) => {
     return await helpers.smartErrorRespond(context.bot, msg, {
-      processingText: cmd.ui?.processingText || `⏳ Running *${cmd.name}*...`,
-      errorText: cmd.ui?.errorText || `❌ *${cmd.name}* failed.`,
+      // 1. Use the 'ui' variable consistently (or cmd.ui? directly, both are okay)
+      //    This ensures processingText is correctly passed for structured modules.
+      processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
+      errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
+      // 2. THIS IS THE CRUCIAL LINE TO ADD FOR STRUCTURED MODULES
+      manageMessageLifecycle: true,
       actionFn: () => cmd.execute(msg, params, context)
     });
   }
-} : cmd;
-
+} : cmd; // This means if cmd.metadata is false, it's not wrapped by smartErrorRespond.
                     this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
                 }
             }
