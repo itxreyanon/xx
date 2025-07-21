@@ -367,7 +367,7 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
 
                                             const ui = cmd.ui || {};
 
-const wrappedCmd = cmd.autoWrap === false ? cmd : {
+const wrappedCmd = cmd.autoWrap === true ? cmd : {
   ...cmd,
   execute: async (msg, params, context) => {
     await helpers.smartErrorRespond(context.bot, msg, {
