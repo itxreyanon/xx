@@ -154,15 +154,30 @@ if (!this.checkPermissions(msg, command)) {
     const respondToUnknown = config.get('features.respondToUnknownCommands', false);
 
     if (handler) {
-        try {
-            await handler.execute(msg, params, {
-                bot: this.bot,
-                sender,
-                participant,
-                isGroup: sender.endsWith('@g.us')
+    try {
+        // Add reaction for non-structured commands
+        if (!handler.ui) {
+            await this.bot.sock.sendMessage(sender, {
+                react: { key: msg.key, text: '⏳' }
             });
+        }
 
-            logger.info(`✅ Command executed: ${command} by ${participant}`);
+        await handler.execute(msg, params, {
+            bot: this.bot,
+            sender,
+            participant,
+            isGroup: sender.endsWith('@g.us')
+        });
+
+        // Clear reaction for non-structured commands
+        if (!handler.ui) {
+            await this.bot.sock.sendMessage(sender, {
+                react: { key: msg.key, text: '' }
+            });
+        }
+
+        logger.info(`✅ Command executed: ${command} by ${participant}`);
+
 
             if (this.bot.telegramBridge) {
                 await this.bot.telegramBridge.logToTelegram('📝 Command Executed',
