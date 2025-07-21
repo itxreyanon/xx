@@ -56,7 +56,7 @@ class Helpers {
 
     return res;
 
-  } catch (err) {
+  } catch (error) {
     // on error: edit in your errorText
     if (autoReact) {
       await bot.sock.sendMessage(jid, {
@@ -67,8 +67,8 @@ class Helpers {
       text: `${errorText}${err.message ? `\n\n🔍 ${err.message}` : ''}`,
       edit: procKey
     });
-err._handledBySmartError = true;
-throw err;
+error._handledBySmartor = true;
+throw error;
 
 
   }
