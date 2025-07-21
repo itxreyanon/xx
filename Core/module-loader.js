@@ -365,22 +365,21 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
         continue;
     }
 
-const ui = cmd.ui || {}; // Keep this line as it captures cmd.ui or an empty object
+const ui = cmd.ui || {}; // This ui variable is good practice for default values.
 
 const wrappedCmd = cmd.metadata ? {
   ...cmd,
   execute: async (msg, params, context) => {
     return await helpers.smartErrorRespond(context.bot, msg, {
-      // 1. Use the 'ui' variable consistently (or cmd.ui? directly, both are okay)
-      //    This ensures processingText is correctly passed for structured modules.
-      processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
-      errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
-      // 2. THIS IS THE CRUCIAL LINE TO ADD FOR STRUCTURED MODULES
-      manageMessageLifecycle: true,
+      // It's good you're using cmd.ui?.processingText here, it's equivalent to ui.processingText if ui is defined.
+      processingText: cmd.ui?.processingText || `⏳ Running *${cmd.name}*...`,
+      errorText: cmd.ui?.errorText || `❌ *${cmd.name}* failed.`,
+      // THIS IS THE LINE THAT IS STILL MISSING OR INCORRECT IN YOUR MODULELOADER
+      manageMessageLifecycle: true, // <--- ADD THIS LINE
       actionFn: () => cmd.execute(msg, params, context)
     });
   }
-} : cmd; // This means if cmd.metadata is false, it's not wrapped by smartErrorRespond.
+} : cmd; // This branch means if cmd.metadata is false, it's not a structured module managed by smartErrorRespond.
                     this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
                 }
             }
