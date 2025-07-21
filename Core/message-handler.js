@@ -170,13 +170,16 @@ if (!this.checkPermissions(msg, command)) {
             }
 
         } catch (error) {
-            logger.error(`❌ Command failed: ${command}`, error);
+            logger.error(`❌ Command failed: ${command} | ${error.message || 'No message'}`);
+logger.debug(error.stack || error);
 
-            if (!error._handledBySmartError) {
-    await this.bot.sendMessage(sender, {
-        text: `❌ Command failed: ${error.message}`
-    });
+
+            if (!error._handledBySmartError && error?.message) {
+  await this.bot.sendMessage(sender, {
+    text: `❌ Command failed: ${error.message}`
+  });
 }
+
 
 
             if (this.bot.telegramBridge) {
