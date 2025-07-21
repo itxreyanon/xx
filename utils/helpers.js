@@ -42,17 +42,21 @@ class Helpers {
                 });
             }
 
-// ✅ Step 3: Show "processing"
-if (isFromSelf && selfEdit) {
-    // Edit own message
+// ✅ Force show "processing"
+if (selfEdit && isFromSelf) {
+    // Bot editing its own message
+    console.log('[smartErrorRespond] Editing own message');
     await bot.sock.sendMessage(sender, {
         text: processingText,
         edit: originalMsg.key
     });
     processingMsgKey = originalMsg.key;
-} else if (!isFromSelf && editMessages) {
-    // Send new processing message to others
-    const processingMsg = await bot.sendMessage(sender, { text: processingText });
+} else if (editMessages) {
+    // Reply to others with new message
+    console.log('[smartErrorRespond] Sending new processing message');
+    const processingMsg = await bot.sock.sendMessage(sender, {
+        text: processingText
+    });
     processingMsgKey = processingMsg.key;
 }
 
