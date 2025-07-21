@@ -1,128 +1,74 @@
 const config = require('../config');
 
 class Helpers {
-    static async smartErrorRespond(bot, originalMsg, options = {}) {
-        const {
-            actionFn = () => { throw new Error('No action provided'); },
-            // processingText and errorText are now passed directly from ModuleLoader,
-            // so we don't need redundant defaults here unless you want absolute fallbacks
-            // that override ModuleLoader's specific ones if they are somehow empty.
-            // For this scenario, we assume ModuleLoader provides them or their defaults.
-            processingText, // This will be the initial message, e.g., "⏳ Running *command*..."
-            errorText,      // This will be the base for error messages
-            autoReact = true,
-        } = options;
+      async smartErrorRespond(bot, originalMsg, options = {}) {
+    const {
+      actionFn = () => { throw new Error('No action provided'); },
+      processingText = '⏳ Processing...',
+      errorText = '❌ Something went wrong.',
+      autoReact = true,
+    } = options;
 
-        if (!bot?.sock?.sendMessage || !originalMsg?.key?.remoteJid) return;
+    if (!bot?.sock?.sendMessage || !originalMsg?.key?.remoteJid) return;
 
-        const jid = originalMsg.key.remoteJid;
-        const isFromBot = originalMsg.key.fromMe === true;
-        let procKey;
+    const jid = originalMsg.key.remoteJid;
+    const isMe = originalMsg.key.fromMe === true;
+    let procKey = originalMsg.key;
 
-        // 1. React to original message (original logic)
-        if (autoReact) {
-            await bot.sock.sendMessage(jid, {
-                react: { key: originalMsg.key, text: '⏳' }
-            });
-        }
-
-        // 2. Send or edit a processing message
-        // Ensure processingText is always a string before sending
-        const initialProcessingText = typeof processingText === 'string' && processingText.length > 0
-            ? processingText
-            : '⏳ Processing...'; // Absolute fallback if somehow empty from ModuleLoader
-
-        if (isFromBot) {
-            // Edit bot's original message
-            await bot.sock.sendMessage(jid, {
-                text: initialProcessingText,
-                edit: originalMsg.key
-            });
-            procKey = originalMsg.key;
-        } else {
-            // Send new "Running..." message and track that
-            const sent = await bot.sock.sendMessage(jid, {
-                text: initialProcessingText
-            });
-            procKey = sent.key;
-        }
-
-        try {
-            // 3. Execute action
-            const result = await actionFn();
-
-            if (autoReact) {
-                await this.sleep(200); // Keep sleep for smooth reaction removal
-                await bot.sock.sendMessage(jid, {
-                    react: { key: originalMsg.key, text: '' } // Original logic: remove reaction
-                });
-            }
-
-            // 4. Edit processing message with result
-            let finalResultText;
-            if (typeof result === 'string' && result.length > 0) {
-                finalResultText = result;
-            } else if (result !== undefined && result !== null) {
-                // Try to stringify non-string, non-null/undefined results
-                try {
-                    finalResultText = JSON.stringify(result, null, 2);
-                } catch (jsonError) {
-                    // Fallback if JSON.stringify fails on a weird object, append error
-                    finalResultText = `Command completed, but result could not be displayed. Error: ${jsonError.message}`;
-                }
-            } else {
-                // If result is undefined, null, or an empty string, just indicate success with the original processing text,
-                // perhaps slightly modified, or a generic success message if the command produced nothing.
-                // Given the requirement "no extra message," if the actionFn returns nothing useful,
-                // we should perhaps just keep the 'processingText' or a minimalist success.
-                // For 'ping' specifically, if it returns nothing, maybe "Ping successful."
-                // Since `ping` is likely to return *something*, an empty or undefined return is probably an oversight.
-                finalResultText = initialProcessingText.replace('⏳ Processing...', '✅ Processed.').replace('⏳ Running', '✅ Executed');
-                if (finalResultText === initialProcessingText) { // If replace didn't change it, add a generic success
-                    finalResultText = `✅ ${initialProcessingText} - Completed.`;
-                }
-            }
-            
-            // Ensure finalResultText is never empty or null before sending
-            if (typeof finalResultText !== 'string' || finalResultText.length === 0) {
-                finalResultText = '✅ Operation completed successfully.'; // Final safeguard
-            }
-
-            await bot.sock.sendMessage(jid, {
-                text: finalResultText,
-                edit: procKey
-            });
-
-            return result;
-
-        } catch (error) {
-            if (autoReact) {
-                await bot.sock.sendMessage(jid, {
-                    react: { key: originalMsg.key, text: '❌' } // Original logic: error reaction
-                });
-            }
-
-            // Ensure errorText is always a string before concatenating
-            const baseErrorText = typeof errorText === 'string' && errorText.length > 0
-                ? errorText
-                : '❌ Command failed.'; // Absolute fallback
-
-            const finalErrorText = `${baseErrorText}${error.message ? `\n\n🔍 ${error.message}` : ''}`;
-            
-            // Ensure finalErrorText is never empty or null before sending
-            if (typeof finalErrorText !== 'string' || finalErrorText.length === 0) {
-                finalErrorText = '❌ An unexpected error occurred.'; // Final safeguard
-            }
-
-            await bot.sock.sendMessage(jid, {
-                text: finalErrorText,
-                edit: procKey
-            });
-
-            error._handledBySmartError = true;
-            throw error;
-        }
+    // Show reaction (⏳) on the original message
+    if (autoReact) {
+      await bot.sock.sendMessage(jid, {
+        react: { key: originalMsg.key, text: '⏳' }
+      });
     }
+
+    // Edit own message or send temporary "processing..." message
+    if (isMe) {
+      await bot.sock.sendMessage(jid, {
+        text: processingText,
+        edit: originalMsg.key
+      });
+    } else {
+      const m = await bot.sock.sendMessage(jid, { text: processingText });
+      procKey = m.key;
+    }
+
+    try {
+      const result = await actionFn();
+
+      if (autoReact) {
+        await this.sleep(200);
+        await bot.sock.sendMessage(jid, {
+          react: { key: originalMsg.key, text: '' }
+        });
+      }
+
+      await bot.sock.sendMessage(jid, {
+        text: typeof result === 'string'
+          ? result
+          : JSON.stringify(result, null, 2),
+        edit: procKey
+      });
+
+      return result;
+
+    } catch (error) {
+      if (autoReact) {
+        await bot.sock.sendMessage(jid, {
+          react: { key: originalMsg.key, text: '❌' }
+        });
+      }
+
+      await bot.sock.sendMessage(jid, {
+        text: `${errorText}${error.message ? `\n\n🔍 ${error.message}` : ''}`,
+        edit: procKey
+      });
+
+      error._handledBySmartError = true;
+      throw error;
+    }
+  }
+};
 
 
     static async sendCommandResponse(bot, originalMsg, responseText) {
