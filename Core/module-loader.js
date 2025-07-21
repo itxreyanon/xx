@@ -367,18 +367,21 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
 
                     const ui = cmd.ui || {};
 
-                    const wrappedCmd = cmd.autoWrap === false ? cmd : {
-                        ...cmd,
-                        execute: async (msg, params, context) => {
-                            await helpers.smartErrorRespond(context.bot, msg, {
-                                processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
-                                errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
-                                actionFn: async () => {
-                                    return await cmd.execute(msg, params, context);
-                                }
-                            });
-                        }
-                    };
+                    // Only wrap commands that have UI config (structured modules)
+const shouldWrap = cmd.ui && (cmd.autoWrap !== false);
+const wrappedCmd = shouldWrap ? {
+    ...cmd,
+    execute: async (msg, params, context) => {
+        await helpers.smartErrorRespond(context.bot, msg, {
+            processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
+            errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
+            actionFn: async () => {
+                return await cmd.execute(msg, params, context);
+            }
+        });
+    }
+} : cmd; // Use original command without wrapping
+
 
                     this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
                 }
