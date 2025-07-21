@@ -4,9 +4,12 @@ class Helpers {
     static async smartErrorRespond(bot, originalMsg, options = {}) {
         const {
             actionFn = () => { throw new Error('No action provided'); },
-            processingText, // Passed by ModuleLoader, or can be undefined/null/empty for manual calls
-            errorText,      // Passed by ModuleLoader
-            autoReact = true,
+            processingText, // Text for the processing message
+            errorText,      // Text for the error message
+            autoReact = true, // Whether to react to the original message
+            // NEW OPTION: Explicitly control if smartErrorRespond manages the message lifecycle
+            // Default to false for general calls; ModuleLoader will set it to true for commands.
+            manageMessageLifecycle = false,
         } = options;
 
         if (!bot?.sock?.sendMessage || !originalMsg?.key?.remoteJid) return;
@@ -15,11 +18,11 @@ class Helpers {
         const isFromBot = originalMsg.key.fromMe === true;
         let procKey = null; // Will store the key of the message managed by smartErrorRespond
 
-        // Determine if smartErrorRespond should send/manage a message for this operation
-        const shouldManageMessage = typeof processingText === 'string' && processingText.length > 0;
-
-        // Store the actual processing text used, for later subtle edits
-        const actualProcessingText = shouldManageMessage ? processingText : '';
+        // The actual text to display if message lifecycle is managed.
+        // This ensures a fallback even if manageMessageLifecycle is true but processingText somehow empty.
+        const resolvedProcessingText = typeof processingText === 'string' && processingText.length > 0
+            ? processingText
+            : '⏳ Processing...'; // Generic fallback if managed but text not provided/empty
 
         // 1. React to original message
         if (autoReact) {
@@ -28,22 +31,22 @@ class Helpers {
             });
         }
 
-        // 2. Conditionally send or edit the initial processing message
-        if (shouldManageMessage) {
+        // 2. Conditionally send or edit the initial processing message, based on `manageMessageLifecycle`
+        if (manageMessageLifecycle) {
             if (isFromBot) {
                 await bot.sock.sendMessage(jid, {
-                    text: actualProcessingText,
+                    text: resolvedProcessingText,
                     edit: originalMsg.key
                 });
                 procKey = originalMsg.key;
             } else {
                 const sent = await bot.sock.sendMessage(jid, {
-                    text: actualProcessingText
+                    text: resolvedProcessingText
                 });
                 procKey = sent.key;
             }
         }
-        // If !shouldManageMessage, procKey remains null, and smartErrorRespond will not send/edit messages.
+        // If !manageMessageLifecycle, procKey remains null, and smartErrorRespond will not send/edit messages.
 
         try {
             // 3. Execute the action function (your command's `execute` method)
@@ -67,14 +70,14 @@ class Helpers {
                         finalResultText = JSON.stringify(result, null, 2);
                         // If JSON.stringify gives empty structures, subtly indicate success
                         if (finalResultText === '{}' || finalResultText === '[]' || finalResultText.trim() === '') {
-                            finalResultText = actualProcessingText.replace('⏳', '✅'); // Change emoji, keep original text
+                            finalResultText = resolvedProcessingText.replace('⏳', '✅'); // Change emoji, keep original text
                         }
                     } catch (jsonError) {
                         finalResultText = `Command completed, but result could not be formatted.`;
                     }
                 } else {
                     // If actionFn returns undefined/null/empty, subtly indicate success
-                    finalResultText = actualProcessingText.replace('⏳', '✅'); // Change emoji, keep original text
+                    finalResultText = resolvedProcessingText.replace('⏳', '✅'); // Change emoji, keep original text
                 }
 
                 // Final safeguard: ensure final text is a non-empty string
@@ -102,7 +105,7 @@ class Helpers {
             if (procKey) {
                 const baseErrorText = typeof errorText === 'string' && errorText.length > 0
                     ? errorText
-                    : `❌ ${actualProcessingText.replace('⏳', '')} failed.`; // Use base error or modify processing text
+                    : `❌ ${resolvedProcessingText.replace('⏳', '')} failed.`; // Use base error or modify processing text
 
                 const finalErrorText = `${baseErrorText}${error.message ? `\n\n🔍 ${error.message}` : ''}`;
 
@@ -122,11 +125,12 @@ class Helpers {
         }
     }
 
-    // This remains unchanged, it correctly uses smartErrorRespond with explicit text
+    // sendCommandResponse should now explicitly manage the message lifecycle
     static async sendCommandResponse(bot, originalMsg, responseText) {
         await this.smartErrorRespond(bot, originalMsg, {
             processingText: '⏳ Checking command...',
             errorText: responseText,
+            manageMessageLifecycle: true, // Explicitly set to true for this helper
             actionFn: async () => {
                 throw new Error(responseText);
             }
@@ -171,7 +175,7 @@ class Helpers {
     }
 
     static sleep(ms) {
-        return new Promise(resolve => setTimeout(resolve, Math.max(0, ms))); // Added missing ')'
+        return new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
     }
 }
 
