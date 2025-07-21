@@ -360,31 +360,15 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
 
             if (Array.isArray(moduleInstance.commands)) {
                 for (const cmd of moduleInstance.commands) {
-                    if (!cmd.name || !cmd.description || !cmd.usage || !cmd.execute) {
-                        logger.warn(`⚠️ Invalid command in module ${actualModuleId}: ${JSON.stringify(cmd)}`);
-                        continue;
-                    }
+    if (!cmd.name || !cmd.description || !cmd.usage || !cmd.execute) {
+        logger.warn(`⚠️ Invalid command in module ${actualModuleId}: ${JSON.stringify(cmd)}`);
+        continue;
+    }
 
-                                            const ui = cmd.ui || {};
+    const wrapped = this.wrapCommand(cmd);
+    this.bot.messageHandler.registerCommandHandler(wrapped.name, wrapped);
+}
 
-const wrappedCmd = cmd.autoWrap === false ? cmd : {
-  ...cmd,
-  execute: async (msg, params, context) => {
-    await helpers.smartErrorRespond(context.bot, msg, {
-      processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
-      errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
-      actionFn: async () => {
-        return await cmd.execute(msg, params, context);
-      }
-    });
-  }
-};
-
-    // Finally register under its command name
-    const wrapped = wrapCommand(cmd);
-this.bot.messageHandler.registerCommandHandler(wrapped.name, wrapped);
-
-  }
 }
             if (moduleInstance.messageHooks && typeof moduleInstance.messageHooks === 'object' && moduleInstance.messageHooks !== null) {
                 for (const [hook, fn] of Object.entries(moduleInstance.messageHooks)) {
@@ -419,6 +403,24 @@ this.bot.messageHandler.registerCommandHandler(wrapped.name, wrapped);
     listModules() {
         return [...this.modules.keys()];
     }
+    
+wrapCommand(cmd) {
+    const ui = cmd.ui || {};
+    if (cmd.autoWrap === false) return cmd;
+
+    return {
+        ...cmd,
+        execute: async (msg, params, context) => {
+            await helpers.smartErrorRespond(context.bot, msg, {
+                processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
+                errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
+                actionFn: async () => {
+                    return await cmd.execute(msg, params, context);
+                }
+            });
+        }
+    };
+}
 
     async unloadModule(moduleId) {
         const moduleInfo = this.modules.get(moduleId);
