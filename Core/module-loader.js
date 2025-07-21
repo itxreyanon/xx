@@ -364,8 +364,23 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
         logger.warn(`⚠️ Invalid command in module ${actualModuleId}: ${JSON.stringify(cmd)}`);
         continue;
     }
+const isStructured = !!cmd.metadata;
 
-this.bot.messageHandler.registerCommandHandler(cmd.name, cmd);
+const wrappedCmd = isStructured ? {
+  ...cmd,
+  execute: async (msg, params, context) => {
+    const ui = cmd.ui || {};
+
+    await this.bot.messageHandler.runWithSmartUI(msg, {
+      processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
+      errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
+      actionFn: () => cmd.execute(msg, params, context)
+    });
+  }
+} : cmd;
+
+this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
+
 
                 }
             }
