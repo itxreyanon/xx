@@ -365,12 +365,12 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
         continue;
     }
 
-                    const ui = cmd.ui || {};
+                   const ui = cmd.ui || {};
 
-                    const wrappedCmd = cmd.metadata ? {
+const wrappedCmd = cmd.metadata ? {
   ...cmd,
   execute: async (msg, params, context) => {
-    await helpers.smartErrorRespond(context.bot, msg, {
+    return await helpers.smartErrorRespond(context.bot, msg, {
       processingText: cmd.ui?.processingText || `⏳ Running *${cmd.name}*...`,
       errorText: cmd.ui?.errorText || `❌ *${cmd.name}* failed.`,
       actionFn: () => cmd.execute(msg, params, context)
