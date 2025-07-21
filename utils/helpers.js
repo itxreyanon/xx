@@ -43,7 +43,7 @@ class Helpers {
 
     // 4) clear spinner
     if (autoReact) {
-      await helpers.sleep(500);
+      await this.sleep(500);
       await bot.sock.sendMessage(jid, {
         react: { key: originalMsg.key, text: '' }
       });
