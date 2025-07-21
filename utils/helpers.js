@@ -43,17 +43,10 @@ class Helpers {
         edit: procKey
       });
 
-      // Create proper error object if it's a string
-      let properError = error;
-      if (typeof error === 'string') {
-        properError = new Error(error);
-      } else if (typeof error !== 'object' || error === null) {
-        properError = new Error(String(error));
-      }
-      
-      properError._handledBySmartError = true;
-      throw properError;
+      error._handledBySmartError = true;
+      throw error;
     }
+
 
   }
 
