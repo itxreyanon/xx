@@ -2,69 +2,79 @@ const config = require('../config');
 
 class Helpers {
     static async smartErrorRespond(bot, originalMsg, options = {}) {
-  const {
-    actionFn = () => { throw new Error('No action provided'); },
-    errorText = '❌ Something went wrong.',
-    autoReact = true,
-    processingText,
-  } = options;
+    const {
+      actionFn = () => { throw new Error('No action provided'); },
+      errorText     = '❌ Something went wrong.',
+      processingText,
+      autoReact     = config.get('features.autoReact', true),
+      editMessages  = config.get('features.messageEdit', true),
+      selfEdit      = config.get('features.selfEditCommands', true),
+    } = options;
 
-  if (!bot?.sock?.sendMessage || !originalMsg?.key?.remoteJid) return;
+    if (!bot?.sock?.sendMessage || !originalMsg?.key?.remoteJid) return;
 
-  const jid = originalMsg.key.remoteJid;
-  const isMe = originalMsg.key.fromMe === true;
-  const cmdName = (originalMsg.message?.conversation || originalMsg.message?.extendedTextMessage?.text || '.')
-                   .trim().split(/\s+/)[0];
+    const jid   = originalMsg.key.remoteJid;
+    const isMe  = originalMsg.key.fromMe === true;
+    // safe raw text extraction
+    const raw   = originalMsg.message?.conversation 
+                || originalMsg.message?.extendedTextMessage?.text 
+                || '';
+    const cmd   = raw.trim().split(/\s+/)[0] || '';
 
-  // 1) React if desired
-  if (autoReact) {
-    await bot.sock.sendMessage(jid, { react: { key: originalMsg.key, text: '⏳' } });
-  }
-
-  // 2) Show “processing…”
-  const procText = processingText
-    || (isMe ? '⏳ Processing...' : `⏳ Running *${cmdName}*...`);
-
-  let procKey = originalMsg.key;
-  if (isMe) {
-    // edit original
-    await bot.sock.sendMessage(jid, { text: procText, edit: originalMsg.key });
-  } else {
-    // send new
-    const m = await bot.sock.sendMessage(jid, { text: procText });
-    procKey = m.key;
-  }
-
-  try {
-    // 3) Run the command
-    const res = await actionFn();
-
-    // 4) Clear react
+    // 1) spinner react
     if (autoReact) {
-      await bot.sock.sendMessage(jid, { react: { key: originalMsg.key, text: '' } });
+      await bot.sock.sendMessage(jid, {
+        react: { key: originalMsg.key, text: '⏳' }
+      });
     }
 
-    // 5) Edit with result
-    await bot.sock.sendMessage(jid, {
-      text: typeof res === 'string' ? res : JSON.stringify(res, null, 2),
-      edit: procKey
-    });
+    // 2) choose processing text
+    const procText = processingText
+      || (isMe
+          ? '⏳ Processing...'
+          : `⏳ Running *${cmd}*...`);
 
-    return res;
-
-  } catch (err) {
-    // on error
-    if (autoReact) {
-      await bot.sock.sendMessage(jid, { react: { key: originalMsg.key, text: '❌' } });
+    // 3) send or edit processing message
+    let procKey = originalMsg.key;
+    if (isMe && selfEdit) {
+      await bot.sock.sendMessage(jid, { text: procText, edit: originalMsg.key });
+    } else if (editMessages) {
+      const m = await bot.sock.sendMessage(jid, { text: procText });
+      procKey = m.key;
     }
-    await bot.sock.sendMessage(jid, {
-      text: `${errorText}${err.message ? `\n\n🔍 ${err.message}` : ''}`,
-      edit: procKey
-    });
-    throw err;
+
+    // 4) run the action
+    let result;
+    try {
+      result = await actionFn();
+    } catch (err) {
+      // on error: edit to errorText + details
+      const msg = `${errorText}${err.message ? `\n\n🔍 ${err.message}` : ''}`;
+      await bot.sock.sendMessage(jid, { text: msg, edit: procKey });
+      return;
+    }
+
+    // 5) clear spinner
+    if (autoReact) {
+      await Helpers.sleep(500);
+      await bot.sock.sendMessage(jid, {
+        react: { key: originalMsg.key, text: '' }
+      });
+    }
+
+    // 6) edit with the result (stringified if needed)
+    const out = typeof result === 'string'
+      ? result
+      : JSON.stringify(result, null, 2);
+
+    await bot.sock.sendMessage(jid, { text: out, edit: procKey });
+    return result;
+  }
+
+  static sleep(ms) {
+    return new Promise(r => setTimeout(r, ms));
   }
 }
-
 
 
 
