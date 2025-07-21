@@ -5,8 +5,7 @@ class Helpers {
     const {
       actionFn = () => { throw new Error('No action provided'); },
       processingText = '⏳ Processing...',
-      errorText = '❌ Something went wrong.',
-      autoReact = true,
+      errorText = '❌ Something went wrong.'
     } = options;
 
     if (!bot?.sock?.sendMessage || !originalMsg?.key?.remoteJid) return;
@@ -14,13 +13,6 @@ class Helpers {
     const jid = originalMsg.key.remoteJid;
     const isMe = originalMsg.key.fromMe === true;
     let procKey = originalMsg.key;
-
-    // React with ⏳ on original message
-    if (autoReact) {
-      await bot.sock.sendMessage(jid, {
-        react: { key: originalMsg.key, text: '⏳' }
-      });
-    }
 
     // Edit own message or send temporary processing message
     if (isMe) {
@@ -36,13 +28,6 @@ class Helpers {
     try {
       const result = await actionFn();
 
-      if (autoReact) {
-        await this.sleep(200);
-        await bot.sock.sendMessage(jid, {
-          react: { key: originalMsg.key, text: '' }
-        });
-      }
-
       await bot.sock.sendMessage(jid, {
         text: typeof result === 'string'
           ? result
@@ -53,12 +38,6 @@ class Helpers {
       return result;
 
     } catch (error) {
-      if (autoReact) {
-        await bot.sock.sendMessage(jid, {
-          react: { key: originalMsg.key, text: '❌' }
-        });
-      }
-
       await bot.sock.sendMessage(jid, {
         text: `${errorText}${error.message ? `\n\n🔍 ${error.message}` : ''}`,
         edit: procKey
