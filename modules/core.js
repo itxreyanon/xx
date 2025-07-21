@@ -121,13 +121,13 @@ class CoreModule {
         this.startTime = Date.now();
     }
 
-    async ping(msg, params, context) {
-        const start = Date.now();
-        const latency = Date.now() - start;
-        this.incrementCommandCount('ping');
-      return ` *Pong!* • ${latency}ms`;
-
-    }
+async ping(msg, params, context) {
+    const start = Date.now();
+    this.incrementCommandCount('ping');
+    await new Promise(resolve => setTimeout(resolve, 0)); 
+    const latency = Date.now() - start;
+    return ` *Pong!* • ${latency}ms`;
+}
 
     async status(msg, params, context) {
         const uptime = this.getUptime();
