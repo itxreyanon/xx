@@ -4,7 +4,6 @@ const path = require('path');
 const { exec } = require('child_process');
 const helpers = require('../utils/helpers');
 
-
 class CoreModule {
     constructor(bot) {
         this.bot = bot;
