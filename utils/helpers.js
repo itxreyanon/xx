@@ -42,15 +42,16 @@ class Helpers {
                 });
             }
 
-            // ✅ Step 3: Show "processing"
-            // ✅ Step 3: Show "processing"
-if (selfEdit && isFromSelf) {
+// ✅ Step 3: Show "processing"
+if (isFromSelf && selfEdit) {
+    // Edit own message
     await bot.sock.sendMessage(sender, {
         text: processingText,
         edit: originalMsg.key
     });
     processingMsgKey = originalMsg.key;
-} else if (editMessages) {
+} else if (!isFromSelf && editMessages) {
+    // Send new processing message to others
     const processingMsg = await bot.sendMessage(sender, { text: processingText });
     processingMsgKey = processingMsg.key;
 }
