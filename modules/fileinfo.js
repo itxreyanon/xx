@@ -1,7 +1,7 @@
 const fs = require('fs-extra');
 const path = require('path');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-
+const helpers = require('../utils/helpers');
 class FileInfoModule {
     constructor(bot) {
         this.bot = bot;
