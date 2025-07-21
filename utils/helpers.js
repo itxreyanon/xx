@@ -1,7 +1,8 @@
 const config = require('../config');
 
 class Helpers {
-      async smartErrorRespond(bot, originalMsg, options = {}) {
+static async smartErrorRespond(bot, originalMsg, options = {}) {
+
     const {
       actionFn = () => { throw new Error('No action provided'); },
       processingText = '⏳ Processing...',
