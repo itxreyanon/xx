@@ -121,62 +121,60 @@ class MessageHandler {
         }
     }
 
-async runWithSmartUI(originalMsg, options = {}) {
-  const {
-    actionFn = () => { throw new Error('No action provided'); },
-    processingText = '⏳ Processing...',
-    errorText = '❌ Something went wrong.',
-  } = options;
+async runWithSmartUI(msg, {
+  processingText = '⏳ Running...',
+  errorText = '❌ Failed to execute command.',
+  actionFn = () => {},
+}) {
+  const isMe = msg.key.fromMe === true;
+  const jid = msg.key.remoteJid;
+  let editKey = msg.key;
 
-  const bot = this.bot;
-  const jid = originalMsg.key.remoteJid;
-  const isMe = originalMsg.key.fromMe === true;
-  let procKey = originalMsg.key;
-
-  // React to every command (structured or not)
-  await bot.sock.sendMessage(jid, {
-    react: { key: originalMsg.key, text: '⏳' }
+  // ⏳ React to command message
+  await this.bot.sock.sendMessage(jid, {
+    react: { key: msg.key, text: '⏳' }
   });
 
-  // Show processing
+  // Send processing message
   if (isMe) {
-    await bot.sock.sendMessage(jid, { text: processingText, edit: originalMsg.key });
+    await this.bot.sock.sendMessage(jid, {
+      text: processingText,
+      edit: msg.key
+    });
   } else {
-    const m = await bot.sock.sendMessage(jid, { text: processingText });
-    procKey = m.key;
+    const processingMsg = await this.bot.sock.sendMessage(jid, { text: processingText });
+    editKey = processingMsg.key;
   }
 
   try {
     const result = await actionFn();
 
-    // Remove ⏳ react
-    await bot.sock.sendMessage(jid, {
-      react: { key: originalMsg.key, text: '' }
+    // ✅ Remove reaction
+    await this.bot.sock.sendMessage(jid, {
+      react: { key: msg.key, text: '' }
     });
 
-    // Show result
-    await bot.sock.sendMessage(jid, {
-      text: typeof result === 'string'
-        ? result
-        : JSON.stringify(result, null, 2),
-      edit: procKey
-    });
+    // ✅ Final output
+    if (result) {
+      await this.bot.sock.sendMessage(jid, {
+        text: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
+        edit: editKey
+      });
+    }
 
     return result;
-  } catch (error) {
-    // React ❌
-    await bot.sock.sendMessage(jid, {
-      react: { key: originalMsg.key, text: '❌' }
+
+  } catch (err) {
+    await this.bot.sock.sendMessage(jid, {
+      react: { key: msg.key, text: '❌' }
     });
 
-    // Edit to error
-    await bot.sock.sendMessage(jid, {
-      text: `${errorText}${error.message ? `\n\n🔍 ${error.message}` : ''}`,
-      edit: procKey
+    await this.bot.sock.sendMessage(jid, {
+      text: `${errorText}${err.message ? `\n\n🔍 ${err.message}` : ''}`,
+      edit: editKey
     });
 
-    error._handledBySmartError = true;
-    throw error;
+    throw err;
   }
 }
 
