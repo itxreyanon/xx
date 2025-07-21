@@ -3,134 +3,91 @@ const config = require('../config');
 class Helpers {
     static async smartErrorRespond(bot, originalMsg, options = {}) {
         const {
+            processingText = '⏳ Processing...',
+            errorText = '❌ Something went wrong.',
             actionFn = () => { throw new Error('No action provided'); },
-            processingText, // Text for the processing message
-            errorText,      // Text for the error message
-            autoReact = true, // Whether to react to the original message
-            // NEW OPTION: Explicitly control if smartErrorRespond manages the message lifecycle
-            // Default to false for general calls; ModuleLoader will set it to true for commands.
-            manageMessageLifecycle = false,
+            autoReact = config.get('features.autoReact', true),
+            editMessages = config.get('features.messageEdit', true),
+            smartProcessing = config.get('features.smartProcessing', false)
         } = options;
 
         if (!bot?.sock?.sendMessage || !originalMsg?.key?.remoteJid) return;
 
-        const jid = originalMsg.key.remoteJid;
-        const isFromBot = originalMsg.key.fromMe === true;
-        let procKey = null; // Will store the key of the message managed by smartErrorRespond
-
-        // The actual text to display if message lifecycle is managed.
-        // This ensures a fallback even if manageMessageLifecycle is true but processingText somehow empty.
-        const resolvedProcessingText = typeof processingText === 'string' && processingText.length > 0
-            ? processingText
-            : '⏳ Processing...'; // Generic fallback if managed but text not provided/empty
-
-        // 1. React to original message
-        if (autoReact) {
-            await bot.sock.sendMessage(jid, {
-                react: { key: originalMsg.key, text: '⏳' }
-            });
-        }
-
-        // 2. Conditionally send or edit the initial processing message, based on `manageMessageLifecycle`
-        if (manageMessageLifecycle) {
-            if (isFromBot) {
-                await bot.sock.sendMessage(jid, {
-                    text: resolvedProcessingText,
-                    edit: originalMsg.key
-                });
-                procKey = originalMsg.key;
-            } else {
-                const sent = await bot.sock.sendMessage(jid, {
-                    text: resolvedProcessingText
-                });
-                procKey = sent.key;
-            }
-        }
-        // If !manageMessageLifecycle, procKey remains null, and smartErrorRespond will not send/edit messages.
+        const sender = originalMsg.key.remoteJid;
+        let processingMsgKey = null;
 
         try {
-            // 3. Execute the action function (your command's `execute` method)
+            // React with ⏳
+            if (autoReact) {
+                await bot.sock.sendMessage(sender, {
+                    react: { key: originalMsg.key, text: '⏳' }
+                });
+            }
+
+            // Show "processing..." message
+            if (editMessages) {
+                const processingMsg = await bot.sendMessage(sender, { text: processingText });
+                processingMsgKey = processingMsg.key;
+            }
+
+            // Run command
             const result = await actionFn();
 
-            // 4. Clean up initial reaction
+            // Wait 1.5s then remove ⏳
             if (autoReact) {
-                await this.sleep(200);
-                await bot.sock.sendMessage(jid, {
+                await Helpers.sleep(1500);
+                await bot.sock.sendMessage(sender, {
                     react: { key: originalMsg.key, text: '' }
                 });
             }
 
-            // 5. Conditionally edit the message with the final result (ONLY if smartErrorRespond managed a message)
-            if (procKey) {
-                let finalResultText;
-                if (typeof result === 'string' && result.length > 0) {
-                    finalResultText = result; // Use the direct string result
-                } else if (result !== undefined && result !== null) {
-                    try {
-                        finalResultText = JSON.stringify(result, null, 2);
-                        // If JSON.stringify gives empty structures, subtly indicate success
-                        if (finalResultText === '{}' || finalResultText === '[]' || finalResultText.trim() === '') {
-                            finalResultText = resolvedProcessingText.replace('⏳', '✅'); // Change emoji, keep original text
-                        }
-                    } catch (jsonError) {
-                        finalResultText = `Command completed, but result could not be formatted.`;
-                    }
-                } else {
-                    // If actionFn returns undefined/null/empty, subtly indicate success
-                    finalResultText = resolvedProcessingText.replace('⏳', '✅'); // Change emoji, keep original text
-                }
-
-                // Final safeguard: ensure final text is a non-empty string
-                if (typeof finalResultText !== 'string' || finalResultText.length === 0) {
-                    finalResultText = '✅ Task completed.'; // Absolute fallback
-                }
-
-                await bot.sock.sendMessage(jid, {
-                    text: finalResultText,
-                    edit: procKey
+            // Edit result or send new
+            if (processingMsgKey && result && typeof result === 'string') {
+                await bot.sock.sendMessage(sender, {
+                    text: result,
+                    edit: processingMsgKey
                 });
+            } else if (processingMsgKey && !result) {
+                await bot.sock.sendMessage(sender, {
+                    text: '✅ Done!',
+                    edit: processingMsgKey
+                });
+            } else if (result && typeof result === 'string') {
+                await bot.sendMessage(sender, { text: result });
             }
 
             return result;
 
         } catch (error) {
-            // Error path
+            // Wait 1.5s then replace ⏳ with ❌
             if (autoReact) {
-                await bot.sock.sendMessage(jid, {
+                await Helpers.sleep(1500);
+                await bot.sock.sendMessage(sender, {
                     react: { key: originalMsg.key, text: '❌' }
                 });
             }
 
-            // 6. Conditionally edit the message with the error (ONLY if smartErrorRespond managed a message)
-            if (procKey) {
-                const baseErrorText = typeof errorText === 'string' && errorText.length > 0
-                    ? errorText
-                    : `❌ ${resolvedProcessingText.replace('⏳', '')} failed.`; // Use base error or modify processing text
+            const finalErrorText = smartProcessing
+                ? `${errorText}\n\n🔍 Error: ${error.message}`
+                : errorText;
 
-                const finalErrorText = `${baseErrorText}${error.message ? `\n\n🔍 ${error.message}` : ''}`;
-
-                // Final safeguard: ensure final text is a non-empty string
-                if (typeof finalErrorText !== 'string' || finalErrorText.length === 0) {
-                    finalErrorText = '❌ An unexpected error occurred.';
-                }
-
-                await bot.sock.sendMessage(jid, {
+            if (processingMsgKey) {
+                await bot.sock.sendMessage(sender, {
                     text: finalErrorText,
-                    edit: procKey
+                    edit: processingMsgKey
                 });
+            } else {
+                await bot.sendMessage(sender, { text: finalErrorText });
             }
 
-            error._handledBySmartError = true;
-            throw error; // Re-throw error so calling code can catch if needed
+            throw error;
         }
     }
 
-    // sendCommandResponse should now explicitly manage the message lifecycle
     static async sendCommandResponse(bot, originalMsg, responseText) {
         await this.smartErrorRespond(bot, originalMsg, {
             processingText: '⏳ Checking command...',
             errorText: responseText,
-            manageMessageLifecycle: true, // Explicitly set to true for this helper
             actionFn: async () => {
                 throw new Error(responseText);
             }
