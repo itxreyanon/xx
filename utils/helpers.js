@@ -1,4 +1,3 @@
-
 const config = require('../config');
 
 class Helpers {
@@ -68,7 +67,9 @@ class Helpers {
       text: `${errorText}${err.message ? `\n\n🔍 ${err.message}` : ''}`,
       edit: procKey
     });
-    throw err;
+error._handledBySmartError = true;
+throw error;
+
   }
 }
 
