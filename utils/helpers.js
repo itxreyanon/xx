@@ -43,16 +43,17 @@ class Helpers {
             }
 
             // ✅ Step 3: Show "processing"
-            if (isStructured && selfEdit && isFromSelf) {
-                await bot.sock.sendMessage(sender, {
-                    text: processingText,
-                    edit: originalMsg.key
-                });
-                processingMsgKey = originalMsg.key;
-            } else if (editMessages) {
-                const processingMsg = await bot.sendMessage(sender, { text: processingText });
-                processingMsgKey = processingMsg.key;
-            }
+            // ✅ Step 3: Show "processing"
+if (selfEdit && isFromSelf) {
+    await bot.sock.sendMessage(sender, {
+        text: processingText,
+        edit: originalMsg.key
+    });
+    processingMsgKey = originalMsg.key;
+} else if (editMessages) {
+    const processingMsg = await bot.sendMessage(sender, { text: processingText });
+    processingMsgKey = processingMsg.key;
+}
 
             // ✅ Step 4: Run command
             const result = await actionFn();
