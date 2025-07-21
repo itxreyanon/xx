@@ -226,22 +226,22 @@ async restart(msg, params, context) {
         return `📢 *Broadcast Sent*\n\nSent to ${sent} chats.`;
     }
 
-    async updateCode(msg, params, context) {
-        return new Promise((resolve, reject) => {
-            exec('git pull', async (err, stdout, stderr) => {
-                if (err || stderr) {
-                    return reject(stderr || err.message);
-                }
+async updateCode(msg, params, context) {
+    return new Promise((resolve, reject) => {
+        exec('git pull', async (err, stdout, stderr) => {
+            if (err || stderr) {
+                return reject(new Error(stderr || err.message || 'Git pull failed'));
+            }
 
-                if (this.bot.telegramBridge) {
-                    await this.bot.telegramBridge.logToTelegram('📥 Update Pulled', stdout);
-                }
+            if (this.bot.telegramBridge) {
+                await this.bot.telegramBridge.logToTelegram('📥 Update Pulled', stdout);
+            }
 
-                this.incrementCommandCount('update');
-                resolve(`📥 *Update Complete*\n\n\`\`\`\n${stdout.trim()}\n\`\`\``);
-            });
+            this.incrementCommandCount('update');
+            resolve(`📥 *Update Complete*\n\n\`\`\`\n${stdout.trim()}\n\`\`\``);
         });
-    }
+    });
+}
 async runShell(msg, params, context) {
     const command = params.join(' ');
     if (!command) return '❌ Usage: `.sh <command>`';
