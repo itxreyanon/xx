@@ -365,24 +365,8 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
         continue;
     }
 
+this.bot.messageHandler.registerCommandHandler(cmd.name, cmd);
 
-                    const ui = cmd.ui || {};
-
-                    const wrappedCmd = cmd.autoWrap === false ? cmd : {
-                        ...cmd,
-                        execute: async (msg, params, context) => {
-                            await helpers.smartErrorRespond(context.bot, msg, {
-                                processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
-                                errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
-                                actionFn: async () => {
-                                    return await cmd.execute(msg, params, context);
-                                }
-                            });
-                        }
-                    };
-
-
-                    this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
                 }
             }
             if (moduleInstance.messageHooks && typeof moduleInstance.messageHooks === 'object' && moduleInstance.messageHooks !== null) {
