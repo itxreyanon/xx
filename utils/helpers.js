@@ -3,118 +3,108 @@ const config = require('../config');
 
 class Helpers {
     static async smartErrorRespond(bot, originalMsg, options = {}) {
-        let {
-            processingText,
-            errorText = '❌ Something went wrong.',
-            actionFn = () => { throw new Error('No action provided'); },
-            autoReact = config.get('features.autoReact', true),
-            editMessages = config.get('features.messageEdit', true),
-            smartProcessing = config.get('features.smartProcessing', false),
-            selfEdit = config.get('features.selfEditCommands', true)
-        } = options;
+    let {
+        processingText,
+        errorText = '❌ Something went wrong.',
+        actionFn = () => { throw new Error('No action provided'); },
+        autoReact = config.get('features.autoReact', true),
+        editMessages = config.get('features.messageEdit', true),
+        smartProcessing = config.get('features.smartProcessing', false),
+        selfEdit = config.get('features.selfEditCommands', true)
+    } = options;
 
-        if (!bot?.sock?.sendMessage || !originalMsg?.key?.remoteJid) return;
+    if (!bot?.sock?.sendMessage || !originalMsg?.key?.remoteJid) return;
 
-        const sender = originalMsg.key.remoteJid;
-        const isFromSelf = originalMsg.key.fromMe === true;
-        const originalPassedText = processingText;
-        let processingMsgKey = null;
+    const sender = originalMsg.key.remoteJid;
+    const isFromSelf = originalMsg.key.fromMe === true;
+    const originalPassedText = processingText;
+    let processingMsgKey = null;
 
-        // ✅ Step 1: fallback only if module didn’t provide anything
-        if (!processingText) {
-            const cmdText =
-                originalMsg?.message?.conversation ||
-                originalMsg?.message?.extendedTextMessage?.text ||
-                '.';
-            const cmdName = cmdText.trim().split(/\s+/)[0];
-            processingText = isFromSelf
-                ? '⏳ Processing...'
-                : `⏳ Running *${cmdName}*...`;
+    // ✅ Step 1: fallback if module didn’t provide a custom text
+    if (!processingText) {
+        const cmdText =
+            originalMsg?.message?.conversation ||
+            originalMsg?.message?.extendedTextMessage?.text ||
+            '.';
+        const cmdName = cmdText.trim().split(/\s+/)[0];
+        processingText = isFromSelf
+            ? '⏳ Processing...'
+            : `⏳ Running *${cmdName}*...`;
+    }
+
+    const isStructured = !!originalPassedText;
+
+    try {
+        // ✅ Step 2: React with ⏳
+        if (autoReact) {
+            await bot.sock.sendMessage(sender, {
+                react: { key: originalMsg.key, text: '⏳' }
+            });
         }
 
-        const isStructured = !!originalPassedText;
+        // ✅ Step 3: Show "processing" message
+        if (selfEdit && isFromSelf) {
+            await bot.sock.sendMessage(sender, {
+                text: processingText,
+                edit: originalMsg.key
+            });
+            processingMsgKey = originalMsg.key;
+        } else if (editMessages) {
+            const processingMsg = await bot.sock.sendMessage(sender, {
+                text: processingText
+            });
+            processingMsgKey = processingMsg.key;
+        }
 
-        try {
-            // ✅ Step 2: React with ⏳
-            if (autoReact) {
-                await bot.sock.sendMessage(sender, {
-                    react: { key: originalMsg.key, text: '⏳' }
-                });
-            }
+        // ✅ Step 4: Run command
+        const result = await actionFn();
 
-// ✅ Force show "processing"
-// ✅ Step 3: Show "processing"
-console.log('[DEBUG] entering processing block...');
-try {
-    if (originalMsg.key.fromMe && selfEdit) {
-        console.log('[DEBUG] Editing self message');
-        await bot.sock.sendMessage(sender, {
-            text: processingText,
-            edit: originalMsg.key
-        });
-        processingMsgKey = originalMsg.key;
-    } else if (editMessages) {
-        console.log('[DEBUG] Sending new message for user');
-        const processingMsg = await bot.sock.sendMessage(sender, {
-            text: processingText
-        });
-        processingMsgKey = processingMsg.key;
-    } else {
-        console.log('[DEBUG] Not sending processing message (editMessages is false)');
+        // ✅ Step 5: Clear ⏳ reaction
+        if (autoReact) {
+            await Helpers.sleep(1000);
+            await bot.sock.sendMessage(sender, {
+                react: { key: originalMsg.key, text: '' }
+            });
+        }
+
+        // ✅ Step 6: Edit result or send fresh
+        if (processingMsgKey && typeof result === 'string') {
+            await bot.sock.sendMessage(sender, {
+                text: result,
+                edit: processingMsgKey
+            });
+        } else if (typeof result === 'string') {
+            await bot.sock.sendMessage(sender, { text: result });
+        }
+
+        return result;
+
+    } catch (error) {
+        // ❌ Handle errors and show friendly message
+        if (autoReact) {
+            await Helpers.sleep(1500);
+            await bot.sock.sendMessage(sender, {
+                react: { key: originalMsg.key, text: '❌' }
+            });
+        }
+
+        const finalErrorText = smartProcessing
+            ? `${errorText}\n\n🔍 Error: ${error.message}`
+            : errorText;
+
+        if (processingMsgKey) {
+            await bot.sock.sendMessage(sender, {
+                text: finalErrorText,
+                edit: processingMsgKey
+            });
+        } else {
+            await bot.sock.sendMessage(sender, { text: finalErrorText });
+        }
+
+        throw error;
     }
-} catch (e) {
-    console.error('[ERROR sending processing message]', e);
 }
 
-            // ✅ Step 4: Run command
-            const result = await actionFn();
-
-            // ✅ Step 5: Clear reaction
-            if (autoReact) {
-                await Helpers.sleep(600);
-                await bot.sock.sendMessage(sender, {
-                    react: { key: originalMsg.key, text: '' }
-                });
-            }
-
-            // ✅ Step 6: Edit result or send fresh
-            if (processingMsgKey && typeof result === 'string') {
-                await bot.sock.sendMessage(sender, {
-                    text: result,
-                    edit: processingMsgKey
-                });
-            } else if (typeof result === 'string') {
-                await bot.sendMessage(sender, { text: result });
-            }
-
-            return result;
-
-        } catch (error) {
-            if (autoReact) {
-                await Helpers.sleep(1000);
-                await bot.sock.sendMessage(sender, {
-                    react: { key: originalMsg.key, text: '❌' }
-                });
-            }
-
-            const finalErrorText = smartProcessing
-                ? `${errorText}\n\n🔍 Error: ${error.message}`
-                : errorText;
-
-            if (processingMsgKey) {
-                await bot.sock.sendMessage(sender, {
-                    text: finalErrorText,
-                    edit: processingMsgKey
-                });
-            } else {
-                await bot.sendMessage(sender, { text: finalErrorText });
-            }
-
-            error._handledBySmartError = true;
-throw error;
-
-        }
-    }
 
     static async sendCommandResponse(bot, originalMsg, responseText) {
         await this.smartErrorRespond(bot, originalMsg, {
