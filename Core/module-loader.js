@@ -365,28 +365,20 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
                         continue;
                     }
 
-                                            // Grab any ui settings (may be undefined)
-    const ui = cmd.ui || {};
+                                            const ui = cmd.ui || {};
 
-    // If autoWrap is explicitly false, register the raw cmd.
-    // Otherwise wrap it through smartErrorRespond().
-    const wrappedCmd = cmd.autoWrap === false
-      ? cmd
-      : {
-          ...cmd,
-          execute: async (msg, params, context) => {
-            await helpers.smartErrorRespond(context.bot, msg, {
-              processingText: ui.processingText
-                || `⏳ Running *${cmd.name}*...`,
-              errorText: ui.errorText
-                || `❌ *${cmd.name}* failed.`,
-              actionFn: async () => {
-                // Return whatever your command returns
-                return await cmd.execute(msg, params, context);
-              }
-            });
-          }
-        };
+const wrappedCmd = cmd.autoWrap === false ? cmd : {
+  ...cmd,
+  execute: async (msg, params, context) => {
+    await helpers.smartErrorRespond(context.bot, msg, {
+      processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
+      errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
+      actionFn: async () => {
+        return await cmd.execute(msg, params, context);
+      }
+    });
+  }
+};
 
     // Finally register under its command name
     this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
