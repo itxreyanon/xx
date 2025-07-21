@@ -2,7 +2,7 @@
 const config = require('../config');
 
 class Helpers {
-    static async smartErrorRespond(bot, originalMsg, options = {}) {
+   static async smartErrorRespond(bot, originalMsg, options = {}) {
     let {
         processingText,
         errorText = '❌ Something went wrong.',
@@ -20,7 +20,7 @@ class Helpers {
     const originalPassedText = processingText;
     let processingMsgKey = null;
 
-    // ✅ Step 1: fallback if module didn’t provide a custom text
+    // ⏳ Step 1: Fallback text if not set
     if (!processingText) {
         const cmdText =
             originalMsg?.message?.conversation ||
@@ -32,31 +32,31 @@ class Helpers {
             : `⏳ Running *${cmdName}*...`;
     }
 
-    const isStructured = !!originalPassedText;
-
     try {
-        // ✅ Step 2: React with ⏳
+        // ⏳ Step 2: Auto react
         if (autoReact) {
             await bot.sock.sendMessage(sender, {
                 react: { key: originalMsg.key, text: '⏳' }
             });
         }
 
-        // ✅ Step 3: Show "processing" message
-        if (selfEdit && isFromSelf) {
+        // ⏳ Step 3: Show "processing..."
+        if (isFromSelf && selfEdit) {
+            // Edit original message
             await bot.sock.sendMessage(sender, {
                 text: processingText,
                 edit: originalMsg.key
             });
             processingMsgKey = originalMsg.key;
         } else if (editMessages) {
+            // Send new message for user
             const processingMsg = await bot.sock.sendMessage(sender, {
                 text: processingText
             });
             processingMsgKey = processingMsg.key;
         }
 
-        // ✅ Step 4: Run command
+        // ✅ Step 4: Run the command
         const result = await actionFn();
 
         // ✅ Step 5: Clear ⏳ reaction
@@ -67,7 +67,7 @@ class Helpers {
             });
         }
 
-        // ✅ Step 6: Edit result or send fresh
+        // ✅ Step 6: Edit result into processing message
         if (processingMsgKey && typeof result === 'string') {
             await bot.sock.sendMessage(sender, {
                 text: result,
@@ -80,7 +80,7 @@ class Helpers {
         return result;
 
     } catch (error) {
-        // ❌ Handle errors and show friendly message
+        // ❌ Step 7: Error reaction
         if (autoReact) {
             await Helpers.sleep(1500);
             await bot.sock.sendMessage(sender, {
