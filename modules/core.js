@@ -242,20 +242,22 @@ async restart(msg, params, context) {
             });
         });
     }
-
-    async runShell(msg, params, context) {
-        const command = params.join(' ');
-        if (!command) return '❌ Usage: `.sh <command>`';
-        return new Promise((resolve, reject) => {
-            exec(command, { timeout: 10000 }, (err, stdout, stderr) => {
-                if (err || stderr) {
-                    return reject(stderr || err.message);
-                }
-                this.incrementCommandCount('sh');
-                resolve(`🖥️ *Command Output*\n\n\`\`\`\n${stdout.trim()}\n\`\`\``);
-            });
+async runShell(msg, params, context) {
+    const command = params.join(' ');
+    if (!command) return '❌ Usage: `.sh <command>`';
+    
+    return new Promise((resolve, reject) => {
+        exec(command, { timeout: 10000 }, (err, stdout, stderr) => {
+            if (err || stderr) {
+                // Create proper Error object with shell error message
+                const errorMessage = stderr || err.message || 'Shell command failed';
+                return reject(new Error(errorMessage));
+            }
+            this.incrementCommandCount('sh');
+            resolve(`🖥️ *Command Output*\n\n\`\`\`\n${stdout.trim()}\n\`\`\``);
         });
-    }
+    });
+}
 
     getUptime() {
         const sec = Math.floor((Date.now() - this.startTime) / 1000);
