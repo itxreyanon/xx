@@ -4,8 +4,12 @@ class Helpers {
     static async smartErrorRespond(bot, originalMsg, options = {}) {
         const {
             actionFn = () => { throw new Error('No action provided'); },
-            processingText = '⏳ Processing...', // This will be overridden by ModuleLoader's specific text if provided
-            errorText = '❌ Something went wrong.', // This will be overridden by ModuleLoader's specific text if provided
+            // processingText and errorText are now passed directly from ModuleLoader,
+            // so we don't need redundant defaults here unless you want absolute fallbacks
+            // that override ModuleLoader's specific ones if they are somehow empty.
+            // For this scenario, we assume ModuleLoader provides them or their defaults.
+            processingText, // This will be the initial message, e.g., "⏳ Running *command*..."
+            errorText,      // This will be the base for error messages
             autoReact = true,
         } = options;
 
@@ -23,17 +27,22 @@ class Helpers {
         }
 
         // 2. Send or edit a processing message
+        // Ensure processingText is always a string before sending
+        const initialProcessingText = typeof processingText === 'string' && processingText.length > 0
+            ? processingText
+            : '⏳ Processing...'; // Absolute fallback if somehow empty from ModuleLoader
+
         if (isFromBot) {
             // Edit bot's original message
             await bot.sock.sendMessage(jid, {
-                text: processingText,
+                text: initialProcessingText,
                 edit: originalMsg.key
             });
             procKey = originalMsg.key;
         } else {
             // Send new "Running..." message and track that
             const sent = await bot.sock.sendMessage(jid, {
-                text: processingText
+                text: initialProcessingText
             });
             procKey = sent.key;
         }
@@ -51,18 +60,32 @@ class Helpers {
 
             // 4. Edit processing message with result
             let finalResultText;
-            if (typeof result === 'string') {
+            if (typeof result === 'string' && result.length > 0) {
                 finalResultText = result;
             } else if (result !== undefined && result !== null) {
+                // Try to stringify non-string, non-null/undefined results
                 try {
                     finalResultText = JSON.stringify(result, null, 2);
                 } catch (jsonError) {
-                    // Fallback if JSON.stringify somehow fails on a weird object
-                    finalResultText = `Operation completed. (Result could not be formatted: ${jsonError.message})`;
+                    // Fallback if JSON.stringify fails on a weird object, append error
+                    finalResultText = `Command completed, but result could not be displayed. Error: ${jsonError.message}`;
                 }
             } else {
-                // Explicit fallback for undefined or null results
-                finalResultText = '✅ Command executed successfully.';
+                // If result is undefined, null, or an empty string, just indicate success with the original processing text,
+                // perhaps slightly modified, or a generic success message if the command produced nothing.
+                // Given the requirement "no extra message," if the actionFn returns nothing useful,
+                // we should perhaps just keep the 'processingText' or a minimalist success.
+                // For 'ping' specifically, if it returns nothing, maybe "Ping successful."
+                // Since `ping` is likely to return *something*, an empty or undefined return is probably an oversight.
+                finalResultText = initialProcessingText.replace('⏳ Processing...', '✅ Processed.').replace('⏳ Running', '✅ Executed');
+                if (finalResultText === initialProcessingText) { // If replace didn't change it, add a generic success
+                    finalResultText = `✅ ${initialProcessingText} - Completed.`;
+                }
+            }
+            
+            // Ensure finalResultText is never empty or null before sending
+            if (typeof finalResultText !== 'string' || finalResultText.length === 0) {
+                finalResultText = '✅ Operation completed successfully.'; // Final safeguard
             }
 
             await bot.sock.sendMessage(jid, {
@@ -79,7 +102,17 @@ class Helpers {
                 });
             }
 
-            const finalErrorText = `${errorText}${error.message ? `\n\n🔍 ${error.message}` : ''}`;
+            // Ensure errorText is always a string before concatenating
+            const baseErrorText = typeof errorText === 'string' && errorText.length > 0
+                ? errorText
+                : '❌ Command failed.'; // Absolute fallback
+
+            const finalErrorText = `${baseErrorText}${error.message ? `\n\n🔍 ${error.message}` : ''}`;
+            
+            // Ensure finalErrorText is never empty or null before sending
+            if (typeof finalErrorText !== 'string' || finalErrorText.length === 0) {
+                finalErrorText = '❌ An unexpected error occurred.'; // Final safeguard
+            }
 
             await bot.sock.sendMessage(jid, {
                 text: finalErrorText,
@@ -94,8 +127,9 @@ class Helpers {
 
     static async sendCommandResponse(bot, originalMsg, responseText) {
         // This function intentionally throws an error to use the smartErrorRespond's error path
+        // It's used for scenarios where you just want to send a pre-determined error message
         await this.smartErrorRespond(bot, originalMsg, {
-            processingText: '⏳ Checking command...', // Can be customized
+            processingText: '⏳ Checking command...',
             errorText: responseText, // This becomes the primary error message
             actionFn: async () => {
                 throw new Error(responseText); // The error message is the responseText
