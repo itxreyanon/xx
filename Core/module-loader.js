@@ -381,7 +381,9 @@ const wrappedCmd = cmd.autoWrap === false ? cmd : {
 };
 
     // Finally register under its command name
-    this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
+    const wrapped = wrapCommand(cmd);
+this.bot.messageHandler.registerCommandHandler(wrapped.name, wrapped);
+
   }
 }
             if (moduleInstance.messageHooks && typeof moduleInstance.messageHooks === 'object' && moduleInstance.messageHooks !== null) {
