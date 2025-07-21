@@ -364,24 +364,23 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
         logger.warn(`⚠️ Invalid command in module ${actualModuleId}: ${JSON.stringify(cmd)}`);
         continue;
     }
-const isStructured = !!cmd.metadata;
 
-const wrappedCmd = isStructured ? {
-  ...cmd,
-  execute: async (msg, params, context) => {
-    const ui = cmd.ui || {};
+                    const ui = cmd.ui || {};
 
-    await this.bot.messageHandler.runWithSmartUI(msg, {
-      processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
-      errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
-      actionFn: () => cmd.execute(msg, params, context)
-    });
-  }
-} : cmd;
+                    const wrappedCmd = cmd.autoWrap === false ? cmd : {
+                        ...cmd,
+                        execute: async (msg, params, context) => {
+                            await helpers.smartErrorRespond(context.bot, msg, {
+                                processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
+                                errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
+                                actionFn: async () => {
+                                    return await cmd.execute(msg, params, context);
+                                }
+                            });
+                        }
+                    };
 
-this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
-
-
+                    this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
                 }
             }
             if (moduleInstance.messageHooks && typeof moduleInstance.messageHooks === 'object' && moduleInstance.messageHooks !== null) {
