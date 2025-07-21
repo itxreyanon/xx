@@ -67,8 +67,9 @@ class Helpers {
       text: `${errorText}${err.message ? `\n\n🔍 ${err.message}` : ''}`,
       edit: procKey
     });
-error._handledBySmartError = true;
-throw error;
+err._handledBySmartError = true;
+throw err;
+
 
   }
 }
