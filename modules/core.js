@@ -283,7 +283,7 @@ async updateCode(msg, params, context) {
                 text: `❌ Failed to get activity report: ${error.message}`
             });
         }
-    }
+    } 
 async runShell(msg, params, context) {
     const command = params.join(' ');
     if (!command) return '❌ Usage: `.sh <command>`';
