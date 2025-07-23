@@ -369,18 +369,20 @@ async runShell(msg, params, context) {
     return new Promise((resolve, reject) => {
         exec(command, { timeout: 10000 }, (err, stdout, stderr) => {
             const output = stdout?.trim() || '';
-            const errorOutput = stderr?.trim() || err?.message || '';
+            const errorOutput = stderr?.trim() || '';
 
             this.incrementCommandCount('sh');
 
-            if (err || stderr) {
-                return reject(new Error(`Shell command failed:\n\n\`\`\`\n${errorOutput || 'Unknown error'}\n\`\`\``));
+            if (err) {
+                return reject(new Error(`Shell command error:\n\n\`\`\`\n${errorOutput || err.message}\n\`\`\``));
             }
 
-            resolve(`🖥️ *Command Output*\n\n\`\`\`\n${output || 'No output'}\n\`\`\``);
+            const result = output || errorOutput || '✅ Command executed but no output.';
+            resolve(`🖥️ *Command Output*\n\n\`\`\`\n${result}\n\`\`\``);
         });
     });
 }
+
 
 
     getUptime() {
