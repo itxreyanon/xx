@@ -241,25 +241,28 @@ async restart(msg, params, context) {
     }
 
 async updateCode(msg, params, context) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         exec('git pull', async (err, stdout, stderr) => {
             const output = stdout?.trim() || '';
-            const errorOutput = stderr?.trim() || err?.message || '';
-
-            if (err || stderr) {
-                return reject(new Error(`Git pull failed:\n\n\`\`\`\n${errorOutput}\n\`\`\``));
-            }
-
+            const errorOutput = stderr?.trim() || '';
             this.incrementCommandCount('update');
 
-            if (this.bot.telegramBridge) {
-                await this.bot.telegramBridge.logToTelegram('📥 Update Pulled', output);
+            let message;
+
+            if (err) {
+                message = `❌ *Git Pull Failed*\n\n\`\`\`\n${errorOutput || err.message || 'Unknown error'}\n\`\`\``;
+            } else {
+                if (this.bot.telegramBridge) {
+                    await this.bot.telegramBridge.logToTelegram('📥 Update Pulled', output);
+                }
+                message = `📥 *Update Complete*\n\n\`\`\`\n${output || 'No changes'}\n\`\`\``;
             }
 
-            resolve(`📥 *Update Complete*\n\n\`\`\`\n${output}\n\`\`\``);
+            resolve(message);
         });
     });
 }
+
 
     async viewActivity(msg, params, context) {
         const targetUser = params[0];
@@ -361,27 +364,25 @@ async updateCode(msg, params, context) {
         }
         this.incrementCommandCount('logs');
     }
-
 async runShell(msg, params, context) {
     const command = params.join(' ');
     if (!command) return '❌ Usage: `.sh <command>`';
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         exec(command, { timeout: 10000 }, (err, stdout, stderr) => {
-            const output = stdout?.trim() || '';
-            const errorOutput = stderr?.trim() || '';
-
             this.incrementCommandCount('sh');
 
-            if (err) {
-                return reject(new Error(`Shell command error:\n\n\`\`\`\n${errorOutput || err.message}\n\`\`\``));
-            }
+            const output = stdout?.trim() || '';
+            const errorOutput = stderr?.trim() || '';
+            const message = err
+                ? `❌ *Shell Command Error*\n\n\`\`\`\n${errorOutput || err.message || 'Unknown error'}\n\`\`\``
+                : `🖥️ *Command Output*\n\n\`\`\`\n${output || errorOutput || '✅ Command executed with no output'}\n\`\`\``;
 
-            const result = output || errorOutput || '✅ Command executed but no output.';
-            resolve(`🖥️ *Command Output*\n\n\`\`\`\n${result}\n\`\`\``);
+            resolve(message);
         });
     });
 }
+
 
 
 
