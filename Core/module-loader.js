@@ -223,47 +223,51 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
 
 
 setupHelpSystem() {
-    // .help command
+    const helpPreferences = new Map();
+
+    const getUserPermissions = (userId) => {
+        const owners = config.get('owners') || [];
+        const isOwner = owners.includes(userId);
+        return isOwner ? ['public', 'admin', 'owner'] : ['public'];
+    };
+
     const helpCommand = {
         name: 'help',
-        description: 'Show all available modules and commands or detailed help for a specific module',
-        usage: '.help [module_name] | .help <1|2> | .help show <1|2|3>',
+        description: 'Show available commands or help for a module',
+        usage: '.help [module_name] | .help 1|2 | .help show 1|2|3',
         permissions: 'public',
         execute: async (msg, params, context) => {
             const userId = context.sender;
-            const ownerIds = config.get('owners') || [];
-            const isOwner = ownerIds.includes(userId);
-            const isAdmin = context.isAdmin || false;
-
-            // User permissions
-            const userPerms = isOwner
-                ? ['public', 'admin', 'owner']
-                : isAdmin
-                    ? ['public', 'admin']
-                    : ['public'];
-
-            // Load or set default help preferences
+            const userPerms = getUserPermissions(userId);
             const pref = helpPreferences.get(userId) || { style: 1, show: 'description' };
 
-            // Process help setting commands
-            if (params.length === 2 && params[0] === 'show' && ['1', '2', '3'].includes(params[1])) {
-                pref.show = params[1] === '1' ? 'description' : params[1] === '2' ? 'usage' : 'none';
-                helpPreferences.set(userId, pref);
-                return await context.bot.sendMessage(userId, {
-                    text: `✅ Help content type set to *${pref.show}*`
-                });
-            }
-
+            // Handle `.help 1` / `.help 2` (style switch)
             if (params.length === 1 && ['1', '2'].includes(params[0])) {
                 pref.style = Number(params[0]);
                 helpPreferences.set(userId, pref);
-                return await context.bot.sendMessage(userId, {
+                await context.bot.sendMessage(userId, {
                     text: `✅ Help style set to *${pref.style}*`
+                });
+                return;
+            }
+
+            // Handle `.help show 1|2|3`
+            if (params.length === 2 && params[0] === 'show') {
+                const map = { '1': 'description', '2': 'usage', '3': 'none' };
+                if (!map[params[1]]) {
+                    return await context.bot.sendMessage(userId, {
+                        text: `❌ Invalid show option.\nUse:\n.help show 1 (description)\n.help show 2 (usage)\n.help show 3 (none)`
+                    });
+                }
+                pref.show = map[params[1]];
+                helpPreferences.set(userId, pref);
+                return await context.bot.sendMessage(userId, {
+                    text: `✅ Help display mode set to *${pref.show}*`
                 });
             }
 
-            // Module-specific help
-            if (params.length === 1 && !['1', '2', 'show'].includes(params[0])) {
+            // Handle `.help [module]`
+            if (params.length === 1) {
                 const moduleName = params[0].toLowerCase();
                 const moduleInfo = this.getModule(moduleName);
 
@@ -274,34 +278,40 @@ setupHelpSystem() {
                 }
 
                 const commands = Array.isArray(moduleInfo.commands) ? moduleInfo.commands : [];
-                const visibleCommands = commands.filter(cmd => userPerms.includes(cmd.permissions));
 
-                let moduleHelp = pref.style === 2
-                    ? `██▓▒░ *${moduleName}*\n\n`
-                    : `╔══  *${moduleName}* ══\n\n`;
+                const visibleCommands = commands.filter(cmd => {
+                    const perms = Array.isArray(cmd.permissions) ? cmd.permissions : [cmd.permissions];
+                    return perms.some(p => userPerms.includes(p));
+                });
 
-                if (visibleCommands.length > 0) {
+                let out = '';
+                if (pref.style === 2) {
+                    out += `██▓▒░ *${moduleName}*\n\n`;
                     for (const cmd of visibleCommands) {
-                        let info = '';
-                        if (pref.show === 'usage') info = cmd.usage || '';
-                        else if (pref.show === 'description') info = cmd.description || '';
-
-                        if (pref.style === 2) {
-                            moduleHelp += `  ↳ *${cmd.name}*${info ? `: ${info}` : ''}\n`;
+                        const info = pref.show === 'usage' ? cmd.usage : cmd.description;
+                        if (pref.show === 'none') {
+                            out += `  ↳ *${cmd.name}*\n`;
                         } else {
-                            moduleHelp += `║ *${cmd.name}*${info ? ` – ${info}` : ''}\n`;
+                            out += `  ↳ *${cmd.name}*: ${info}\n`;
                         }
                     }
                 } else {
-                    moduleHelp += pref.style === 2 ? `  No commands available\n` : `║  No commands available\n`;
+                    out += `╔══  *${moduleName}* ══\n`;
+                    for (const cmd of visibleCommands) {
+                        const info = pref.show === 'usage' ? cmd.usage : cmd.description;
+                        if (pref.show === 'none') {
+                            out += `║ *${cmd.name}*\n`;
+                        } else {
+                            out += `║ *${cmd.name}* – ${info}\n`;
+                        }
+                    }
+                    out += `╚═══════════════`;
                 }
 
-                if (pref.style === 1) moduleHelp += `╚═══════════════`;
-
-                return await context.bot.sendMessage(userId, { text: moduleHelp });
+                return await context.bot.sendMessage(userId, { text: out });
             }
 
-            // Full help menu
+            // Render all modules
             const systemModules = [];
             const customModules = [];
 
@@ -314,25 +324,32 @@ setupHelpSystem() {
                 let block = '';
                 for (const mod of modules) {
                     const commands = Array.isArray(mod.instance.commands) ? mod.instance.commands : [];
-                    const visible = commands.filter(c => userPerms.includes(c.permissions));
+                    const visible = commands.filter(c => {
+                        const perms = Array.isArray(c.permissions) ? c.permissions : [c.permissions];
+                        return perms.some(p => userPerms.includes(p));
+                    });
                     if (visible.length === 0) continue;
 
                     if (pref.style === 2) {
                         block += `██▓▒░ *${mod.name}*\n\n`;
                         for (const cmd of visible) {
-                            let info = '';
-                            if (pref.show === 'usage') info = cmd.usage || '';
-                            else if (pref.show === 'description') info = cmd.description || '';
-                            block += `  ↳ *${cmd.name}*${info ? `: ${info}` : ''}\n`;
+                            const info = pref.show === 'usage' ? cmd.usage : cmd.description;
+                            if (pref.show === 'none') {
+                                block += `  ↳ *${cmd.name}*\n`;
+                            } else {
+                                block += `  ↳ *${cmd.name}*: ${info}\n`;
+                            }
                         }
                         block += `\n`;
                     } else {
                         block += `╔══  *${mod.name}* ══\n`;
                         for (const cmd of visible) {
-                            let info = '';
-                            if (pref.show === 'usage') info = cmd.usage || '';
-                            else if (pref.show === 'description') info = cmd.description || '';
-                            block += `║ *${cmd.name}*${info ? ` – ${info}` : ''}\n`;
+                            const info = pref.show === 'usage' ? cmd.usage : cmd.description;
+                            if (pref.show === 'none') {
+                                block += `║ *${cmd.name}*\n`;
+                            } else {
+                                block += `║ *${cmd.name}* – ${info}\n`;
+                            }
                         }
                         block += `╚═══════════════\n\n`;
                     }
