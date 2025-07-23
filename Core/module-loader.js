@@ -241,11 +241,12 @@ setupHelpSystem() {
 
                 const commands = Array.isArray(moduleInfo.commands) ? moduleInfo.commands : [];
                 const visibleCommands = isOwner ? commands : commands.filter(cmd => cmd.permissions === 'public');
-
-                let helpText = `╔══  *${moduleName}* ══\n`;
+                
+                let helpText = `╔══  *${moduleName}* ══\n\n`;
+                helpText += `📝 *Description*: ${metadata.description || 'No description available'}\n`;
                 if (visibleCommands.length > 0) {
                     for (const cmd of visibleCommands) {
-                        helpText += `║  *${cmd.name}* – ${cmd.description}\n`;
+                        helpText += `║ *${cmd.name}* – ${cmd.description}\n`;
                     }
                 } else {
                     helpText += `║  No public commands available\n`;
@@ -255,7 +256,7 @@ setupHelpSystem() {
                 await context.bot.sendMessage(context.sender, { text: helpText });
                 return;
             }
-
+            let helpText = `🤖 *${config.get('bot.name')} Help Menu*\n\n`;
             // Show all modules
             const systemModules = [];
             const customModules = [];
@@ -278,7 +279,7 @@ setupHelpSystem() {
 
                     block += `╔══  *${mod.name}* ══\n`;
                     for (const cmd of filtered) {
-                        block += `║  *${cmd.name}* – ${cmd.description}\n`;
+                        block += `║ *${cmd.name}* – ${cmd.description}\n`;
                     }
                     block += `╚═══════════════\n\n`;
                 }
