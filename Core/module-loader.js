@@ -3,7 +3,8 @@ const fs = require('fs-extra');
 const logger = require('./logger');
 const config = require('../config');
 const helpers = require('../utils/helpers');
-
+// Temporary in-memory store; replace with DB for persistence
+const helpPreferences = new Map();
 class ModuleLoader {
     constructor(bot) {
         this.bot = bot;
@@ -11,6 +12,7 @@ class ModuleLoader {
         this.systemModulesCount = 0;
         this.customModulesCount = 0;
         this.setupModuleCommands();
+        
     }
 
     setupModuleCommands() {
@@ -218,22 +220,27 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
 
     }
 
+
+
 setupHelpSystem() {
+    // .help command
     const helpCommand = {
         name: 'help',
         description: 'Show all available modules and commands or detailed help for a specific module',
         usage: '.help [module_name]',
         permissions: 'public',
         execute: async (msg, params, context) => {
-            const isOwner = (config.get('owners') || []).includes(context.sender);
+            const userId = context.sender;
+            const isOwner = (config.get('owners') || []).includes(userId);
+            const pref = helpPreferences.get(userId) || { style: 1, show: 'description' };
 
-            // If a specific module name is requested
+            // Specific module help
             if (params.length > 0) {
                 const moduleName = params[0].toLowerCase();
                 const moduleInfo = this.getModule(moduleName);
 
                 if (!moduleInfo) {
-                    await context.bot.sendMessage(context.sender, {
+                    await context.bot.sendMessage(userId, {
                         text: `❌ Module *${moduleName}* not found.\nUse *.help* to view available modules.`
                     });
                     return;
@@ -242,24 +249,30 @@ setupHelpSystem() {
                 const commands = Array.isArray(moduleInfo.commands) ? moduleInfo.commands : [];
                 const visibleCommands = isOwner ? commands : commands.filter(cmd => cmd.permissions === 'public');
 
-                let moduleHelp = `╔══  *${moduleName}* ══\n\n`;
-                moduleHelp += `📝 *Description*: ${moduleInfo.description || 'No description available'}\n`;
-                
+                let moduleHelp = pref.style === 2
+                    ? `██▓▒░ *${moduleName}*\n\n`
+                    : `╔══  *${moduleName}* ══\n\n`;
+
                 if (visibleCommands.length > 0) {
                     for (const cmd of visibleCommands) {
-                        moduleHelp += `║ *${cmd.name}* – ${cmd.description}\n`;
+                        const info = pref.show === 'usage' ? cmd.usage : cmd.description;
+                        if (pref.style === 2) {
+                            moduleHelp += `  ↳ *${cmd.name}*: ${info}\n`;
+                        } else {
+                            moduleHelp += `║ *${cmd.name}* – ${info}\n`;
+                        }
                     }
                 } else {
-                    moduleHelp += `║  No public commands available\n`;
+                    moduleHelp += pref.style === 2 ? `  No public commands available\n` : `║  No public commands available\n`;
                 }
 
-                moduleHelp += `╚═══════════════`;
+                if (pref.style !== 2) moduleHelp += `╚═══════════════`;
 
-                await context.bot.sendMessage(context.sender, { text: moduleHelp });
+                await context.bot.sendMessage(userId, { text: moduleHelp });
                 return;
             }
 
-            // Otherwise, show full help menu
+            // Full help menu
             const systemModules = [];
             const customModules = [];
 
@@ -273,27 +286,74 @@ setupHelpSystem() {
                 for (const mod of modules) {
                     const commands = Array.isArray(mod.instance.commands) ? mod.instance.commands : [];
                     const visible = isOwner ? commands : commands.filter(c => c.permissions === 'public');
-
                     if (visible.length === 0) continue;
 
-                    block += `╔══  *${mod.name}* ══\n`;
-                    for (const cmd of visible) {
-                        block += `║ *${cmd.name}* – ${cmd.description}\n`;
+                    if (pref.style === 2) {
+                        block += `██▓▒░ *${mod.name}*\n\n`;
+                        for (const cmd of visible) {
+                            const info = pref.show === 'usage' ? cmd.usage : cmd.description;
+                            block += `  ↳ *${cmd.name}*: ${info}\n`;
+                        }
+                        block += `\n`;
+                    } else {
+                        block += `╔══  *${mod.name}* ══\n`;
+                        for (const cmd of visible) {
+                            const info = pref.show === 'usage' ? cmd.usage : cmd.description;
+                            block += `║ *${cmd.name}* – ${info}\n`;
+                        }
+                        block += `╚═══════════════\n\n`;
                     }
-                    block += `╚═══════════════\n\n`;
                 }
                 return block;
             };
 
-            let fullHelp = `🤖 *${config.get('bot.name')} Help Menu*\n\n`;
-            fullHelp += renderModuleBlock(systemModules);
-            fullHelp += renderModuleBlock(customModules);
+            let helpText = '';
+            helpText += renderModuleBlock(systemModules);
+            helpText += renderModuleBlock(customModules);
 
-            await context.bot.sendMessage(context.sender, { text: fullHelp.trim() });
+            await context.bot.sendMessage(userId, { text: helpText.trim() });
+        }
+    };
+
+    // .sethelp command
+    const setHelpCommand = {
+        name: 'sethelp',
+        description: 'Set help menu style or what info to show (description or usage)',
+        usage: '.sethelp style <1|2> | .sethelp show <description|usage>',
+        permissions: 'public',
+        execute: async (msg, params, context) => {
+            const userId = context.sender;
+            const pref = helpPreferences.get(userId) || { style: 1, show: 'description' };
+
+            if (params.length < 2) {
+                await context.bot.sendMessage(userId, {
+                    text: `🛠 Usage:\n.sethelp style <1|2>\n.sethelp show <description|usage>`
+                });
+                return;
+            }
+
+            const [key, value] = params;
+
+            if (key === 'style' && ['1', '2'].includes(value)) {
+                pref.style = Number(value);
+            } else if (key === 'show' && ['description', 'usage'].includes(value)) {
+                pref.show = value;
+            } else {
+                await context.bot.sendMessage(userId, {
+                    text: `❌ Invalid input.\nUse:\n.sethelp style <1|2>\n.sethelp show <description|usage>`
+                });
+                return;
+            }
+
+            helpPreferences.set(userId, pref);
+            await context.bot.sendMessage(userId, {
+                text: `✅ Help style updated:\n• Style: *${pref.style}*\n• Show: *${pref.show}*`
+            });
         }
     };
 
     this.bot.messageHandler.registerCommandHandler('help', helpCommand);
+    this.bot.messageHandler.registerCommandHandler('sethelp', setHelpCommand);
 }
 
 
