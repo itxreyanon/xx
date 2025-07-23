@@ -226,9 +226,11 @@ setupHelpSystem() {
     const helpPreferences = new Map();
 
     const getUserPermissions = (userId) => {
-        const owners = config.get('owners') || [];
-        const isOwner = owners.includes(userId);
-        return isOwner ? ['public', 'admin', 'owner'] : ['public'];
+        const owner = config.get('bot.owner')?.split('@')[0]; // Get owner ID without domain
+        const isOwner = owner === userId;
+        const admins = config.get('bot.admins') || [];
+        const isAdmin = admins.includes(userId);
+        return isOwner ? ['public', 'admin', 'owner'] : isAdmin ? ['public', 'admin'] : ['public'];
     };
 
     const helpCommand = {
@@ -237,7 +239,7 @@ setupHelpSystem() {
         usage: '.help [module_name] | .help 1|2 | .help show 1|2|3',
         permissions: 'public',
         execute: async (msg, params, context) => {
-            const userId = context.sender;
+            const userId = context.sender.split('@')[0]; // Normalize userId
             const userPerms = getUserPermissions(userId);
             const pref = helpPreferences.get(userId) || { style: 1, show: 'description' };
 
@@ -245,7 +247,7 @@ setupHelpSystem() {
             if (params.length === 1 && ['1', '2'].includes(params[0])) {
                 pref.style = Number(params[0]);
                 helpPreferences.set(userId, pref);
-                await context.bot.sendMessage(userId, {
+                await context.bot.sendMessage(context.sender, {
                     text: `✅ Help style set to *${pref.style}*`
                 });
                 return;
@@ -255,13 +257,13 @@ setupHelpSystem() {
             if (params.length === 2 && params[0] === 'show') {
                 const map = { '1': 'description', '2': 'usage', '3': 'none' };
                 if (!map[params[1]]) {
-                    return await context.bot.sendMessage(userId, {
+                    return await context.bot.sendMessage(context.sender, {
                         text: `❌ Invalid show option.\nUse:\n.help show 1 (description)\n.help show 2 (usage)\n.help show 3 (none)`
                     });
                 }
                 pref.show = map[params[1]];
                 helpPreferences.set(userId, pref);
-                return await context.bot.sendMessage(userId, {
+                return await context.bot.sendMessage(context.sender, {
                     text: `✅ Help display mode set to *${pref.show}*`
                 });
             }
@@ -272,7 +274,7 @@ setupHelpSystem() {
                 const moduleInfo = this.getModule(moduleName);
 
                 if (!moduleInfo) {
-                    return await context.bot.sendMessage(userId, {
+                    return await context.bot.sendMessage(context.sender, {
                         text: `❌ Module *${moduleName}* not found.\nUse *.help* to view available modules.`
                     });
                 }
@@ -308,7 +310,7 @@ setupHelpSystem() {
                     out += `╚═══════════════`;
                 }
 
-                return await context.bot.sendMessage(userId, { text: out });
+                return await context.bot.sendMessage(context.sender, { text: out });
             }
 
             // Render all modules
@@ -358,13 +360,12 @@ setupHelpSystem() {
             };
 
             const helpText = renderModuleBlock(systemModules) + renderModuleBlock(customModules);
-            await context.bot.sendMessage(userId, { text: helpText.trim() });
+            await context.bot.sendMessage(context.sender, { text: helpText.trim() });
         }
     };
 
     this.bot.messageHandler.registerCommandHandler('help', helpCommand);
 }
-
 
     getCommandModule(commandName) {
         for (const [moduleName, moduleInfo] of this.modules) {
