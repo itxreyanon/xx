@@ -223,69 +223,69 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
 
 
 setupHelpSystem() {
-    const helpPreferences = new Map(); // Per-user help config
-
     // .help command
     const helpCommand = {
         name: 'help',
-        description: 'Show help menu or configure style',
-        usage: '.help [module_name | style <1|2> | show <1|2|3>]',
+        description: 'Show all available modules and commands or detailed help for a specific module',
+        usage: '.help [module_name] | .help <1|2> | .help show <1|2|3>',
         permissions: 'public',
         execute: async (msg, params, context) => {
             const userId = context.sender;
-            const isOwner = (config.get('owners') || []).includes(userId);
-            const isAdmin = context.isAdmin; // You should provide this in context
+            const ownerIds = config.get('owners') || [];
+            const isOwner = ownerIds.includes(userId);
+            const isAdmin = context.isAdmin || false;
+
+            // User permissions
+            const userPerms = isOwner
+                ? ['public', 'admin', 'owner']
+                : isAdmin
+                    ? ['public', 'admin']
+                    : ['public'];
+
+            // Load or set default help preferences
             const pref = helpPreferences.get(userId) || { style: 1, show: 'description' };
 
-            // handle settings: `.help style 1` or `.help show 2`
-            if (params.length === 2 && ['style', 'show'].includes(params[0])) {
-                const [key, value] = params;
-                if (key === 'style' && ['1', '2'].includes(value)) {
-                    pref.style = Number(value);
-                } else if (key === 'show' && ['1', '2', '3'].includes(value)) {
-                    pref.show = { '1': 'description', '2': 'usage', '3': 'none' }[value];
-                } else {
-                    await context.bot.sendMessage(userId, {
-                        text: `❌ Invalid input.\nUse:\n• .help style <1|2>\n• .help show <1|2|3>`
-                    });
-                    return;
-                }
-
+            // Process help setting commands
+            if (params.length === 2 && params[0] === 'show' && ['1', '2', '3'].includes(params[1])) {
+                pref.show = params[1] === '1' ? 'description' : params[1] === '2' ? 'usage' : 'none';
                 helpPreferences.set(userId, pref);
-                await context.bot.sendMessage(userId, {
-                    text: `✅ Help preferences updated:\n• Style: *${pref.style}*\n• Show: *${pref.show}*`
+                return await context.bot.sendMessage(userId, {
+                    text: `✅ Help content type set to *${pref.show}*`
                 });
-                return;
             }
 
-            // handle `.help <module>`
-            if (params.length === 1 && !['style', 'show'].includes(params[0])) {
+            if (params.length === 1 && ['1', '2'].includes(params[0])) {
+                pref.style = Number(params[0]);
+                helpPreferences.set(userId, pref);
+                return await context.bot.sendMessage(userId, {
+                    text: `✅ Help style set to *${pref.style}*`
+                });
+            }
+
+            // Module-specific help
+            if (params.length === 1 && !['1', '2', 'show'].includes(params[0])) {
                 const moduleName = params[0].toLowerCase();
                 const moduleInfo = this.getModule(moduleName);
 
                 if (!moduleInfo) {
-                    await context.bot.sendMessage(userId, {
+                    return await context.bot.sendMessage(userId, {
                         text: `❌ Module *${moduleName}* not found.\nUse *.help* to view available modules.`
                     });
-                    return;
                 }
 
                 const commands = Array.isArray(moduleInfo.commands) ? moduleInfo.commands : [];
-                const visible = commands.filter(cmd => {
-                    const perm = cmd.permissions || 'public';
-                    if (perm === 'public') return true;
-                    if (perm === 'admin' && isAdmin) return true;
-                    if (perm === 'owner' && isOwner) return true;
-                    return false;
-                });
+                const visibleCommands = commands.filter(cmd => userPerms.includes(cmd.permissions));
 
                 let moduleHelp = pref.style === 2
                     ? `██▓▒░ *${moduleName}*\n\n`
                     : `╔══  *${moduleName}* ══\n\n`;
 
-                if (visible.length > 0) {
-                    for (const cmd of visible) {
-                        const info = pref.show === 'usage' ? cmd.usage : pref.show === 'description' ? cmd.description : '';
+                if (visibleCommands.length > 0) {
+                    for (const cmd of visibleCommands) {
+                        let info = '';
+                        if (pref.show === 'usage') info = cmd.usage || '';
+                        else if (pref.show === 'description') info = cmd.description || '';
+
                         if (pref.style === 2) {
                             moduleHelp += `  ↳ *${cmd.name}*${info ? `: ${info}` : ''}\n`;
                         } else {
@@ -293,18 +293,15 @@ setupHelpSystem() {
                         }
                     }
                 } else {
-                    moduleHelp += pref.style === 2
-                        ? `  No accessible commands\n`
-                        : `║  No accessible commands\n`;
+                    moduleHelp += pref.style === 2 ? `  No commands available\n` : `║  No commands available\n`;
                 }
 
-                if (pref.style !== 2) moduleHelp += `╚═══════════════`;
+                if (pref.style === 1) moduleHelp += `╚═══════════════`;
 
-                await context.bot.sendMessage(userId, { text: moduleHelp });
-                return;
+                return await context.bot.sendMessage(userId, { text: moduleHelp });
             }
 
-            // full help menu
+            // Full help menu
             const systemModules = [];
             const customModules = [];
 
@@ -313,32 +310,28 @@ setupHelpSystem() {
                 moduleInfo.isSystem ? systemModules.push(entry) : customModules.push(entry);
             }
 
-            const filterCommands = (cmds) => cmds.filter(cmd => {
-                const perm = cmd.permissions || 'public';
-                if (perm === 'public') return true;
-                if (perm === 'admin' && isAdmin) return true;
-                if (perm === 'owner' && isOwner) return true;
-                return false;
-            });
-
-            const renderBlock = (modules) => {
+            const renderModuleBlock = (modules) => {
                 let block = '';
                 for (const mod of modules) {
-                    const cmds = Array.isArray(mod.instance.commands) ? mod.instance.commands : [];
-                    const visible = filterCommands(cmds);
+                    const commands = Array.isArray(mod.instance.commands) ? mod.instance.commands : [];
+                    const visible = commands.filter(c => userPerms.includes(c.permissions));
                     if (visible.length === 0) continue;
 
                     if (pref.style === 2) {
                         block += `██▓▒░ *${mod.name}*\n\n`;
                         for (const cmd of visible) {
-                            const info = pref.show === 'usage' ? cmd.usage : pref.show === 'description' ? cmd.description : '';
+                            let info = '';
+                            if (pref.show === 'usage') info = cmd.usage || '';
+                            else if (pref.show === 'description') info = cmd.description || '';
                             block += `  ↳ *${cmd.name}*${info ? `: ${info}` : ''}\n`;
                         }
                         block += `\n`;
                     } else {
                         block += `╔══  *${mod.name}* ══\n`;
                         for (const cmd of visible) {
-                            const info = pref.show === 'usage' ? cmd.usage : pref.show === 'description' ? cmd.description : '';
+                            let info = '';
+                            if (pref.show === 'usage') info = cmd.usage || '';
+                            else if (pref.show === 'description') info = cmd.description || '';
                             block += `║ *${cmd.name}*${info ? ` – ${info}` : ''}\n`;
                         }
                         block += `╚═══════════════\n\n`;
@@ -347,17 +340,13 @@ setupHelpSystem() {
                 return block;
             };
 
-            let helpText = '';
-            helpText += renderBlock(systemModules);
-            helpText += renderBlock(customModules);
-
+            const helpText = renderModuleBlock(systemModules) + renderModuleBlock(customModules);
             await context.bot.sendMessage(userId, { text: helpText.trim() });
         }
     };
 
     this.bot.messageHandler.registerCommandHandler('help', helpCommand);
 }
-
 
 
     getCommandModule(commandName) {
