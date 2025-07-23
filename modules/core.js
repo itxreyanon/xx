@@ -303,42 +303,20 @@ async updateCode(msg, params, context) {
 async logs(msg, params, context) {
     const jid = msg.key.remoteJid;
     const displayMode = params[0]?.toLowerCase() === 'display';
-    const logDir = path.join(__dirname, '../logs');
+    const logFilePath = path.join(__dirname, '../logs', 'bot.log');
 
-    // Helper to get latest .log file safely
-    const getLatestLogFile = async () => {
-        if (!await fs.pathExists(logDir)) return null;
-
-        const files = (await fs.readdir(logDir))
-            .filter(f => f.endsWith('.log'));
-
-        if (files.length === 0) return null;
-
-        // Sort safely with try/catch
-        try {
-            files.sort((a, b) => {
-                const aStat = fs.statSync(path.join(logDir, a));
-                const bStat = fs.statSync(path.join(logDir, b));
-                return bStat.mtime - aStat.mtime;
-            });
-        } catch (e) {
-            this.bot.logger?.error?.('Failed to sort log files:', e);
-            return null;
-        }
-
-        return path.join(logDir, files[0]);
-    };
-
-    const latestLogFile = await getLatestLogFile();
-
-    if (!latestLogFile) {
-        await this.bot.sock.sendMessage(jid, { text: '❌ No log files found or failed to read them.' });
+    // Check if log file exists
+    if (!await fs.pathExists(logFilePath)) {
+        logger.error('Log file does not exist:', logFilePath);
+        await this.bot.sock.sendMessage(jid, { text: '❌ No log file found at the specified path.' });
         return;
     }
 
+    logger.debug('Processing log file:', logFilePath);
+
     if (displayMode) {
         try {
-            const content = await fs.readFile(latestLogFile, 'utf8');
+            const content = await fs.readFile(logFilePath, 'utf8');
             const lines = content.split('\n').filter(l => l.trim());
             const recent = lines.slice(-10).join('\n') || 'No recent logs.';
             const logText = `📜 *Recent Logs* (Last 10 lines)\n\n\`\`\`\n${recent}\n\`\`\`\n🕒 ${new Date().toLocaleTimeString()}`;
@@ -348,25 +326,36 @@ async logs(msg, params, context) {
                 await this.bot.telegramBridge.logToTelegram('📜 Logs Displayed', 'Recent logs viewed by owner');
             }
         } catch (err) {
-            this.bot.logger?.error?.('Log read/display failed:', err);
+            logger.error('Failed to read/display log file:', err);
             await this.bot.sock.sendMessage(jid, {
-                text: `❌ Failed to display logs:\n\n${err.message}`
+                text: `❌ Failed to display logs: ${err.message || 'Unknown error'}`
             });
         }
     } else {
         try {
+            const fileBuffer = await fs.readFile(logFilePath);
+            if (fileBuffer.length === 0) {
+                logger.warn('Log file is empty:', logFilePath);
+                await this.bot.sock.sendMessage(jid, { text: '❌ Log file is empty.' });
+                return;
+            }
+
             await this.bot.sock.sendMessage(jid, {
-                document: { source: latestLogFile, filename: path.basename(latestLogFile) },
-                caption: `📜 *Latest Log File*\n\n📄 File: ${path.basename(latestLogFile)}\n🕒 ${new Date().toLocaleTimeString()}`
+                document: {
+                    stream: fileBuffer,
+                    filename: 'bot.log',
+                    mimetype: 'text/plain'
+                },
+                caption: `📜 *Latest Log File*\n\n📄 File: bot.log\n🕒 ${new Date().toLocaleTimeString()}`
             });
 
             if (this.bot.telegramBridge) {
-                await this.bot.telegramBridge.logToTelegram('📜 Log File Sent', `File: ${path.basename(latestLogFile)}`);
+                await this.bot.telegramBridge.logToTelegram('📜 Log File Sent', 'File: bot.log');
             }
         } catch (err) {
-            this.bot.logger?.error?.('Failed to send log file:', err);
+            logger.error('Failed to send log file:', err);
             await this.bot.sock.sendMessage(jid, {
-                text: `❌ Failed to send log file:\n\n${err.message}`
+                text: `❌ Failed to send log file: ${err.message || 'Unknown error'}`
             });
         }
     }
