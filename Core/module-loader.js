@@ -227,7 +227,7 @@ setupHelpSystem() {
         execute: async (msg, params, context) => {
             const isOwner = (config.get('owners') || []).includes(context.sender);
 
-            // Help for specific module
+            // If a specific module name is requested
             if (params.length > 0) {
                 const moduleName = params[0].toLowerCase();
                 const moduleInfo = this.getModule(moduleName);
@@ -241,44 +241,43 @@ setupHelpSystem() {
 
                 const commands = Array.isArray(moduleInfo.commands) ? moduleInfo.commands : [];
                 const visibleCommands = isOwner ? commands : commands.filter(cmd => cmd.permissions === 'public');
+
+                let moduleHelp = `╔══  *${moduleName}* ══\n\n`;
+                moduleHelp += `📝 *Description*: ${moduleInfo.description || 'No description available'}\n`;
                 
-                let helpText = `╔══  *${moduleName}* ══\n\n`;
-                helpText += `📝 *Description*: ${metadata.description || 'No description available'}\n`;
                 if (visibleCommands.length > 0) {
                     for (const cmd of visibleCommands) {
-                        helpText += `║ *${cmd.name}* – ${cmd.description}\n`;
+                        moduleHelp += `║ *${cmd.name}* – ${cmd.description}\n`;
                     }
                 } else {
-                    helpText += `║  No public commands available\n`;
+                    moduleHelp += `║  No public commands available\n`;
                 }
-                helpText += `╚═══════════════`;
 
-                await context.bot.sendMessage(context.sender, { text: helpText });
+                moduleHelp += `╚═══════════════`;
+
+                await context.bot.sendMessage(context.sender, { text: moduleHelp });
                 return;
             }
-            let helpText = `🤖 *${config.get('bot.name')} Help Menu*\n\n`;
-            // Show all modules
+
+            // Otherwise, show full help menu
             const systemModules = [];
             const customModules = [];
 
             for (const [name, moduleInfo] of this.modules) {
-                if (moduleInfo.isSystem) {
-                    systemModules.push({ name, instance: moduleInfo.instance });
-                } else {
-                    customModules.push({ name, instance: moduleInfo.instance });
-                }
+                const entry = { name, instance: moduleInfo.instance };
+                moduleInfo.isSystem ? systemModules.push(entry) : customModules.push(entry);
             }
 
-            const renderModules = (modules) => {
+            const renderModuleBlock = (modules) => {
                 let block = '';
                 for (const mod of modules) {
                     const commands = Array.isArray(mod.instance.commands) ? mod.instance.commands : [];
-                    const filtered = isOwner ? commands : commands.filter(c => c.permissions === 'public');
+                    const visible = isOwner ? commands : commands.filter(c => c.permissions === 'public');
 
-                    if (filtered.length === 0) continue;
+                    if (visible.length === 0) continue;
 
                     block += `╔══  *${mod.name}* ══\n`;
-                    for (const cmd of filtered) {
+                    for (const cmd of visible) {
                         block += `║ *${cmd.name}* – ${cmd.description}\n`;
                     }
                     block += `╚═══════════════\n\n`;
@@ -286,10 +285,11 @@ setupHelpSystem() {
                 return block;
             };
 
-            let helpText = '';
-            helpText += renderModules(systemModules);
-            helpText += renderModules(customModules);
-            await context.bot.sendMessage(context.sender, { text: helpText.trim() });
+            let fullHelp = `🤖 *${config.get('bot.name')} Help Menu*\n\n`;
+            fullHelp += renderModuleBlock(systemModules);
+            fullHelp += renderModuleBlock(customModules);
+
+            await context.bot.sendMessage(context.sender, { text: fullHelp.trim() });
         }
     };
 
