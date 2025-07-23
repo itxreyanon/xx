@@ -3,7 +3,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const { exec } = require('child_process');
 const helpers = require('../utils/helpers');
-const logger = require('./logger');
+const logger = require('../Core/logger');
 
 class CoreModule {
     constructor(bot) {
