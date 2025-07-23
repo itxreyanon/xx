@@ -303,81 +303,77 @@ async updateCode(msg, params, context) {
 async logs(msg, params, context) {
     const jid = msg.key.remoteJid;
     const displayMode = params[0]?.toLowerCase() === 'display';
-
     const logDir = path.join(__dirname, '../logs');
 
-    if (displayMode) {
-        if (!config.get('logging.saveToFile')) {
-            await this.bot.sock.sendMessage(jid, { text: '❌ Log saving to file is not enabled' });
-            return;
+    // Helper to get latest .log file safely
+    const getLatestLogFile = async () => {
+        if (!await fs.pathExists(logDir)) return null;
+
+        const files = (await fs.readdir(logDir))
+            .filter(f => f.endsWith('.log'));
+
+        if (files.length === 0) return null;
+
+        // Sort safely with try/catch
+        try {
+            files.sort((a, b) => {
+                const aStat = fs.statSync(path.join(logDir, a));
+                const bStat = fs.statSync(path.join(logDir, b));
+                return bStat.mtime - aStat.mtime;
+            });
+        } catch (e) {
+            this.bot.logger?.error?.('Failed to sort log files:', e);
+            return null;
         }
 
+        return path.join(logDir, files[0]);
+    };
+
+    const latestLogFile = await getLatestLogFile();
+
+    if (!latestLogFile) {
+        await this.bot.sock.sendMessage(jid, { text: '❌ No log files found or failed to read them.' });
+        return;
+    }
+
+    if (displayMode) {
         try {
-            const exists = await fs.pathExists(logDir);
-            if (!exists) {
-                await this.bot.sock.sendMessage(jid, { text: '❌ No logs found' });
-                return;
-            }
-
-            const logFiles = (await fs.readdir(logDir))
-                .filter(file => file.endsWith('.log'))
-                .sort((a, b) => fs.statSync(path.join(logDir, b)).mtime - fs.statSync(path.join(logDir, a)).mtime);
-
-            if (logFiles.length === 0) {
-                await this.bot.sock.sendMessage(jid, { text: '❌ No log files found' });
-                return;
-            }
-
-            const latestLogFile = path.join(logDir, logFiles[0]);
-            const logContent = await fs.readFile(latestLogFile, 'utf8');
-            const logLines = logContent.split('\n').filter(line => line.trim());
-            const recentLogs = logLines.slice(-10).join('\n'); // Last 10 lines
-
-            const logText = `📜 *Recent Logs* (Last 10 Entries)\n\n\`\`\`\n${recentLogs || 'No recent logs'}\n\`\`\`\n🕒 ${new Date().toLocaleTimeString()}`;
+            const content = await fs.readFile(latestLogFile, 'utf8');
+            const lines = content.split('\n').filter(l => l.trim());
+            const recent = lines.slice(-10).join('\n') || 'No recent logs.';
+            const logText = `📜 *Recent Logs* (Last 10 lines)\n\n\`\`\`\n${recent}\n\`\`\`\n🕒 ${new Date().toLocaleTimeString()}`;
             await this.bot.sock.sendMessage(jid, { text: logText });
 
             if (this.bot.telegramBridge) {
                 await this.bot.telegramBridge.logToTelegram('📜 Logs Displayed', 'Recent logs viewed by owner');
             }
-        } catch (error) {
-            this.bot.logger?.error?.('Failed to display logs:', error);
-            await this.bot.sock.sendMessage(jid, { text: `❌ Failed to display logs:\n\n${error.message}` });
+        } catch (err) {
+            this.bot.logger?.error?.('Log read/display failed:', err);
+            await this.bot.sock.sendMessage(jid, {
+                text: `❌ Failed to display logs:\n\n${err.message}`
+            });
         }
-
     } else {
         try {
-            const exists = await fs.pathExists(logDir);
-            if (!exists) {
-                await this.bot.sock.sendMessage(jid, { text: '❌ No logs found' });
-                return;
-            }
-
-            const logFiles = (await fs.readdir(logDir))
-                .filter(file => file.endsWith('.log'))
-                .sort((a, b) => fs.statSync(path.join(logDir, b)).mtime - fs.statSync(path.join(logDir, a)).mtime);
-
-            if (logFiles.length === 0) {
-                await this.bot.sock.sendMessage(jid, { text: '❌ No log files found' });
-                return;
-            }
-
-            const latestLogFile = path.join(logDir, logFiles[0]);
             await this.bot.sock.sendMessage(jid, {
-                document: { source: latestLogFile, filename: logFiles[0] },
-                caption: `📜 *Latest Log File*\n\n📄 File: ${logFiles[0]}\n🕒 ${new Date().toLocaleTimeString()}`
+                document: { source: latestLogFile, filename: path.basename(latestLogFile) },
+                caption: `📜 *Latest Log File*\n\n📄 File: ${path.basename(latestLogFile)}\n🕒 ${new Date().toLocaleTimeString()}`
             });
 
             if (this.bot.telegramBridge) {
-                await this.bot.telegramBridge.logToTelegram('📜 Log File Sent', `File: ${logFiles[0]}`);
+                await this.bot.telegramBridge.logToTelegram('📜 Log File Sent', `File: ${path.basename(latestLogFile)}`);
             }
-        } catch (error) {
-            this.bot.logger?.error?.('Failed to send log file:', error);
-            await this.bot.sock.sendMessage(jid, { text: `❌ Failed to send log file:\n\n${error.message}` });
+        } catch (err) {
+            this.bot.logger?.error?.('Failed to send log file:', err);
+            await this.bot.sock.sendMessage(jid, {
+                text: `❌ Failed to send log file:\n\n${err.message}`
+            });
         }
     }
 
     this.incrementCommandCount('logs');
 }
+
 
 async runShell(msg, params, context) {
     const command = params.join(' ');
