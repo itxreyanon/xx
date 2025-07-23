@@ -289,7 +289,6 @@ setupHelpSystem() {
             let helpText = '';
             helpText += renderModules(systemModules);
             helpText += renderModules(customModules);
-
             await context.bot.sendMessage(context.sender, { text: helpText.trim() });
         }
     };
