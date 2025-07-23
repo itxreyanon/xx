@@ -359,8 +359,10 @@ setupHelpSystem() {
                 return block;
             };
             let helpText = `🤖 *${config.get('bot.name')} Help Menu*\n\n`;
-            const helpText = renderModuleBlock(systemModules) + renderModuleBlock(customModules);
-            await context.bot.sendMessage(context.sender, { text: helpText.trim() });
+helpText += renderModuleBlock(systemModules);
+helpText += renderModuleBlock(customModules);
+await context.bot.sendMessage(context.sender, { text: helpText.trim() });
+
         }
     };
 
