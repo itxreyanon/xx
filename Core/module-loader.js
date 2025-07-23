@@ -227,7 +227,7 @@ setupHelpSystem() {
         execute: async (msg, params, context) => {
             const isOwner = (config.get('owners') || []).includes(context.sender);
 
-            // Show detailed help for a specific module
+            // Help for specific module
             if (params.length > 0) {
                 const moduleName = params[0].toLowerCase();
                 const moduleInfo = this.getModule(moduleName);
@@ -242,21 +242,21 @@ setupHelpSystem() {
                 const commands = Array.isArray(moduleInfo.commands) ? moduleInfo.commands : [];
                 const visibleCommands = isOwner ? commands : commands.filter(cmd => cmd.permissions === 'public');
 
-                let helpText = `╔═ ${moduleName} ═════════════╗\n`;
+                let helpText = `╔══  *${moduleName}* ══\n`;
                 if (visibleCommands.length > 0) {
                     for (const cmd of visibleCommands) {
-                        helpText += `║  ${cmd.name} – ${cmd.description}\n`;
+                        helpText += `║  *${cmd.name}* – ${cmd.description}\n`;
                     }
                 } else {
                     helpText += `║  No public commands available\n`;
                 }
-                helpText += `╚═══════════════════╝`;
+                helpText += `╚═══════════════`;
 
                 await context.bot.sendMessage(context.sender, { text: helpText });
                 return;
             }
 
-            // Show all modules and commands
+            // Show all modules
             const systemModules = [];
             const customModules = [];
 
@@ -276,11 +276,11 @@ setupHelpSystem() {
 
                     if (filtered.length === 0) continue;
 
-                    block += `╔═ ${mod.name} ═════════════╗\n`;
+                    block += `╔══  *${mod.name}* ══\n`;
                     for (const cmd of filtered) {
-                        block += `║  ${cmd.name} – ${cmd.description}\n`;
+                        block += `║  *${cmd.name}* – ${cmd.description}\n`;
                     }
-                    block += `╚═══════════════════╝\n\n`;
+                    block += `╚═══════════════\n\n`;
                 }
                 return block;
             };
@@ -295,6 +295,7 @@ setupHelpSystem() {
 
     this.bot.messageHandler.registerCommandHandler('help', helpCommand);
 }
+
 
 
     getCommandModule(commandName) {
