@@ -38,6 +38,13 @@ class CoreModule {
                 execute: this.status.bind(this)
             },
             {
+                name: 'activity',
+                description: 'View user activity logs',
+                usage: '.activity [user] [days]',
+                permissions: 'admin',
+                execute: this.viewActivity.bind(this)
+            },
+            {
                 name: 'restart',
                 description: 'Restart the bot (owner only)',
                 usage: '.restart',
@@ -241,6 +248,42 @@ async updateCode(msg, params, context) {
         });
     });
 }
+
+    async viewActivity(msg, params, context) {
+        const targetUser = params[0];
+        const days = parseInt(params[1]) || 7;
+        
+        try {
+            const activity = await this.getUserActivity(targetUser, days);
+            
+            let activityText = `📊 *User Activity Report*\n\n`;
+            
+            if (targetUser) {
+                activityText += `👤 *User:* ${targetUser}\n`;
+            } else {
+                activityText += `👥 *All Users*\n`;
+            }
+            
+            activityText += `📅 *Period:* Last ${days} days\n\n`;
+            activityText += `💬 *Messages:* ${activity.messages}\n`;
+            activityText += `⚡ *Commands:* ${activity.commands}\n`;
+            activityText += `📊 *Success Rate:* ${activity.successRate}%\n`;
+            
+            if (activity.topCommands.length > 0) {
+                activityText += `\n🔥 *Top Commands:*\n`;
+                activity.topCommands.forEach((cmd, index) => {
+                    activityText += `  ${index + 1}. ${cmd.name} (${cmd.count}x)\n`;
+                });
+            }
+            
+            await context.bot.sendMessage(context.sender, { text: activityText });
+            
+        } catch (error) {
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ Failed to get activity report: ${error.message}`
+            });
+        }
+    }
 async runShell(msg, params, context) {
     const command = params.join(' ');
     if (!command) return '❌ Usage: `.sh <command>`';
