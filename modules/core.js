@@ -243,16 +243,20 @@ async restart(msg, params, context) {
 async updateCode(msg, params, context) {
     return new Promise((resolve, reject) => {
         exec('git pull', async (err, stdout, stderr) => {
-            if (err || stderr) {
-                return reject(new Error(stderr || err.message || 'Git pull failed'));
-            }
+            const output = stdout?.trim() || '';
+            const errorOutput = stderr?.trim() || err?.message || '';
 
-            if (this.bot.telegramBridge) {
-                await this.bot.telegramBridge.logToTelegram('📥 Update Pulled', stdout);
+            if (err || stderr) {
+                return reject(new Error(`Git pull failed:\n\n\`\`\`\n${errorOutput}\n\`\`\``));
             }
 
             this.incrementCommandCount('update');
-            resolve(`📥 *Update Complete*\n\n\`\`\`\n${stdout.trim()}\n\`\`\``);
+
+            if (this.bot.telegramBridge) {
+                await this.bot.telegramBridge.logToTelegram('📥 Update Pulled', output);
+            }
+
+            resolve(`📥 *Update Complete*\n\n\`\`\`\n${output}\n\`\`\``);
         });
     });
 }
@@ -296,7 +300,7 @@ async updateCode(msg, params, context) {
     async logs(msg, params, context) {
         const displayMode = params[0]?.toLowerCase() === 'display';
         if (!config.get('logging.saveToFile') && displayMode) {
-            await context.bot.sendMessage(context.sender, { text: '❌ Log saving to file is not enabled' });
+            await this.bot.sendMessage(context.sender, { text: '❌ Log saving to file is not enabled' });
             return;
         }
 
@@ -361,19 +365,23 @@ async updateCode(msg, params, context) {
 async runShell(msg, params, context) {
     const command = params.join(' ');
     if (!command) return '❌ Usage: `.sh <command>`';
-    
+
     return new Promise((resolve, reject) => {
         exec(command, { timeout: 10000 }, (err, stdout, stderr) => {
-            if (err || stderr) {
-                // Create proper Error object with shell error message
-                const errorMessage = stderr || err.message || 'Shell command failed';
-                return reject(new Error(errorMessage));
-            }
+            const output = stdout?.trim() || '';
+            const errorOutput = stderr?.trim() || err?.message || '';
+
             this.incrementCommandCount('sh');
-            resolve(`🖥️ *Command Output*\n\n\`\`\`\n${stdout.trim()}\n\`\`\``);
+
+            if (err || stderr) {
+                return reject(new Error(`Shell command failed:\n\n\`\`\`\n${errorOutput || 'Unknown error'}\n\`\`\``));
+            }
+
+            resolve(`🖥️ *Command Output*\n\n\`\`\`\n${output || 'No output'}\n\`\`\``);
         });
     });
 }
+
 
     getUptime() {
         const sec = Math.floor((Date.now() - this.startTime) / 1000);
