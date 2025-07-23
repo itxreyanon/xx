@@ -218,89 +218,91 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
 
     }
 
-   setupHelpSystem() {
+  setupHelpSystem() {
     const helpCommand = {
         name: 'help',
         description: 'Show all available modules and commands or detailed help for a specific module',
         usage: '.help [module_name]',
         permissions: 'public',
         execute: async (msg, params, context) => {
-            const isOwner = context.isOwner;
+            const isOwner = config.get('owners', []).includes(context.sender);
 
-            const filterCommands = (commands) =>
-                commands.filter(cmd => isOwner || cmd.permissions === 'public');
-
+            // Single module help
             if (params.length > 0) {
                 const moduleName = params[0].toLowerCase();
                 const moduleInfo = this.getModule(moduleName);
 
                 if (!moduleInfo) {
                     await context.bot.sendMessage(context.sender, {
-                        text: `❌ Module *${moduleName}* not found.\n\nUse *help* to see available modules.`
+                        text: `❌ Module *${moduleName}* not found.\nUse *.help* to see all available modules.`
                     });
                     return;
                 }
 
                 const metadata = moduleInfo.metadata || {};
-                const commands = filterCommands(Array.isArray(moduleInfo.commands) ? moduleInfo.commands : []);
+                const commands = Array.isArray(moduleInfo.commands) ? moduleInfo.commands : [];
+                const visibleCommands = isOwner ? commands : commands.filter(cmd => cmd.permissions === 'public');
 
-                let helpText = `📦 *Module: ${moduleName}*\n\n`;
-                helpText += `📝 *Description*: ${metadata.description || 'No description'}\n`;
-                helpText += `🆚 *Version*: ${metadata.version || 'Unknown'}\n`;
-                helpText += `👤 *Author*: ${metadata.author || 'Unknown'}\n`;
-                helpText += `📂 *Category*: ${metadata.category || 'Uncategorized'}\n`;
-                helpText += `📁 *Type*: ${this.modules.get(moduleName)?.isSystem ? 'System' : 'Custom'}\n\n`;
+                let helpText = `╔═ ${moduleName.toUpperCase()} ═════════════╗\n`;
+                helpText += `• Description: ${metadata.description || 'No description'}\n`;
+                helpText += `• Version: ${metadata.version || 'Unknown'}\n`;
+                helpText += `• Author: ${metadata.author || 'Unknown'}\n`;
+                helpText += `• Category: ${metadata.category || 'Uncategorized'}\n`;
+                helpText += `• Type: ${this.modules.get(moduleName)?.isSystem ? 'System' : 'Custom'}\n`;
+                helpText += `╠═════════════════════════╣\n`;
 
-                if (commands.length > 0) {
-                    helpText += `📋 *Commands* (${commands.length}):\n`;
-                    for (const cmd of commands) {
-                        helpText += `› ${cmd.name} – ${cmd.description}\n`;
+                if (visibleCommands.length > 0) {
+                    for (const cmd of visibleCommands) {
+                        helpText += `• ${cmd.name} – ${cmd.description}\n`;
+                        helpText += `  ↳ Usage: ${cmd.usage}\n`;
                     }
                 } else {
-                    helpText += `📋 *Commands*: None available for you\n`;
+                    helpText += '• No public commands available\n';
                 }
 
+                helpText += `╚═════════════════════════╝`;
                 await context.bot.sendMessage(context.sender, { text: helpText });
                 return;
             }
 
+            // All modules help
             const systemModules = [];
             const customModules = [];
 
             for (const [name, moduleInfo] of this.modules) {
-                const instance = moduleInfo.instance;
-                const commands = filterCommands(Array.isArray(instance.commands) ? instance.commands : []);
-                if (commands.length === 0) continue;
-
                 if (moduleInfo.isSystem) {
-                    systemModules.push({ name, commands });
+                    systemModules.push({ name, instance: moduleInfo.instance });
                 } else {
-                    customModules.push({ name, commands });
+                    customModules.push({ name, instance: moduleInfo.instance });
                 }
             }
 
-            let helpText = `🤖 *Help Menu*\n\n`;
+            let helpText = `╔═ HELP MENU ═════════════╗\n`;
+            helpText += `Use *.help <module>* to view detailed info\n`;
+            helpText += `╚═════════════════════════╝\n\n`;
 
-            // System Modules
-            helpText += `🛠 *System Modules* (${systemModules.length}):\n`;
-            for (const mod of systemModules) {
-                helpText += `• ${mod.name} (${mod.commands.length} cmds)\n`;
-                for (const cmd of mod.commands) {
-                    helpText += `   › ${cmd.name} – ${cmd.description}\n`;
+            const renderModules = (title, list) => {
+                if (list.length === 0) return '';
+
+                let block = `╔═ ${title.toUpperCase()} (${list.length}) ═════════╗\n`;
+                for (const mod of list) {
+                    const commands = Array.isArray(mod.instance.commands) ? mod.instance.commands : [];
+                    const filtered = isOwner ? commands : commands.filter(c => c.permissions === 'public');
+
+                    if (filtered.length > 0) {
+                        block += `╠═ ${mod.name} (${filtered.length})\n`;
+                        for (const cmd of filtered) {
+                            block += `• ${cmd.name} – ${cmd.description}\n`;
+                            block += `  ↳ ${cmd.usage}\n`;
+                        }
+                    }
                 }
-            }
-            helpText += `\n`;
+                block += `╚═════════════════════════╝\n\n`;
+                return block;
+            };
 
-            // Custom Modules
-            helpText += `🎨 *Custom Modules* (${customModules.length}):\n`;
-            for (const mod of customModules) {
-                helpText += `• ${mod.name} (${mod.commands.length} cmds)\n`;
-                for (const cmd of mod.commands) {
-                    helpText += `   › ${cmd.name} – ${cmd.description}\n`;
-                }
-            }
-
-            helpText += `\n💡 Type *.help <module>* for details`;
+            helpText += renderModules('System Modules', systemModules);
+            helpText += renderModules('Custom Modules', customModules);
 
             await context.bot.sendMessage(context.sender, { text: helpText });
         }
