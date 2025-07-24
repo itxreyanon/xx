@@ -1,5 +1,5 @@
 const apiHelper = require('../../utils/api-helper');
-const messageUtils = require('../../utils/message-utils');
+const messageUtils = require('./utils/message-utils');
 
 
 class AIUtilitiesModule {
