@@ -239,9 +239,13 @@ setupHelpSystem() {
         usage: '.help [module_name] | .help 1|2 | .help show 1|2|3',
         permissions: 'public',
         execute: async (msg, params, context) => {
-            const userId = context.sender.split('@')[0]; // Normalize userId
-            const userPerms = getUserPermissions(userId);
-            const pref = helpPreferences.get(userId) || { style: 1, show: 'description' };
+        const userId = context.sender.split('@')[0]; // Normalize userId
+        const userPerms = getUserPermissions(userId);
+
+        const helpConfig = config.get('help') || {};
+        const defaultStyle = helpConfig.defaultStyle || 1;
+        const defaultShow = helpConfig.defaultShow || 'description';
+        const pref = helpPreferences.get(userId) || { style: defaultStyle, show: defaultShow };
 
             // Handle `.help 1` / `.help 2` (style switch)
             if (params.length === 1 && ['1', '2'].includes(params[0])) {
