@@ -1,4 +1,3 @@
-
 class Config {
 constructor() {
     this.defaultConfig = {
