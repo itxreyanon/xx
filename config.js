@@ -57,6 +57,18 @@ constructor() {
                     animatedStickers: true
                 }
             },
+            "help": {
+  // Default help style:
+  // 1 = Box-style (╔══ module ══)
+  // 2 = Divider style (██▓▒░ module)
+  "defaultStyle": 1,
+
+  // Default display mode for help entries:
+  // "description" = show command descriptions
+  // "usage" = show usage info instead
+  // "none" = show only command names
+  "defaultShow": "description"
+},
             logging: {
                 level: 'info',
                 saveToFile: true,
