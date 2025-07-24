@@ -45,7 +45,7 @@ constructor() {
                 features: {
                     topics: true,
                     mediaSync: true,
-                    profilePicSync: true,
+                    profilePicSync: false,
                     callLogs: true,
                     statusSync: true,
                     biDirectional: true,
