@@ -6,7 +6,7 @@ class Config {
                 company: 'Dawium Technologies',
                 prefix: '.',
                 version: '2.0.0',
-                owner: '923417033005@s.whatsapp.net', // Include full JID
+                owner: '923075417411@s.whatsapp.net', // Include full JID
                 clearAuthOnStart: false
             },
 
@@ -31,7 +31,7 @@ class Config {
 
             mongo: {
                 uri: 'mongodb+srv://itxelijah07:ivp8FYGsbVfjQOkj@cluster0.wh25x.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0',
-                dbName: 'HyperWA'
+                dbName: 'HyperWAArshman'
             },
 
             telegram: {
