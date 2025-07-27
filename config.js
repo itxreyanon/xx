@@ -9,9 +9,11 @@ constructor() {
             owner: '923075417411@s.whatsapp.net',
             clearAuthOnStart: false
         },
-          auth: {
-                useMongoAuth: true, //  set to false for file-based auth, ture mongodb auth base
-     },
+  auth: {
+    useMongoAuth: false, // or true
+    usePairing: true, // Enable pairing
+    pairingPhoneNumber: "92300020250", // Your number without +
+  },
         admins: [
             '923075417411',  // Just the number part, no "@s.whatsapp.net"
             '923334445555'
