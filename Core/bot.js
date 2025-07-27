@@ -147,7 +147,12 @@ class HyperWaBot {
                 logger.warn('⚠️ Failed to send start message via Telegram:', err.message);
             }
         } catch (error) {
-            logger.warn('⚠️ Telegram bridge failed to initialize:', error.message);
+            logger.warn('⚠️ Telegram bridge failed to initialize:', {
+  message: error.message,
+  stack: error.stack,
+  error,
+});
+
             this.telegramBridge = null;
         }
     }
