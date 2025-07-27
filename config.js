@@ -11,8 +11,7 @@ constructor() {
         },
   auth: {
     useMongoAuth: false, // or true
-    usePairing: true, // Enable pairing
-    pairingPhoneNumber: "92300020250", // Your number without +
+    usePairingCode: true, // Enable pairing
   },
         admins: [
             '923075417411',  // Just the number part, no "@s.whatsapp.net"
