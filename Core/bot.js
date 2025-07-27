@@ -25,7 +25,7 @@ class HyperWaBot {
         this.moduleLoader = new ModuleLoader(this);
         this.qrCodeSent = false;
         this.useMongoAuth = config.get('auth.useMongoAuth', false);
-        this.usePairingCode = config.get('auth.usePairingCode', false);
+        this.usePairingCode = config.get('auth.usePairingCode', true);
         
         // Initialize store
         this.store = makeInMemoryStore({
