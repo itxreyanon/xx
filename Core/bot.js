@@ -1,14 +1,15 @@
+// Core/bot.js
 const {
     default: makeWASocket,
     useMultiFileAuthState,
     DisconnectReason,
     fetchLatestBaileysVersion,
     makeCacheableSignalKeyStore,
-    makeInMemoryStore,
-    proto,
+    makeInMemoryStore, // <-- Ensure this is imported
     Browsers
 } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
+const pino = require('pino'); // <-- Import pino for key store logger
 const qrcode = require('qrcode-terminal');
 const fs = require('fs-extra');
 const path = require('path');
@@ -21,27 +22,14 @@ const { connectDb } = require('../utils/db');
 const ModuleLoader = require('./module-loader');
 const { useMongoAuthState } = require('../utils/mongoAuthState');
 
-// --- Add Global Error Handlers (Place near the top) ---
-process.on('unhandledRejection', (reason, promise) => {
-    logger.error('🚨 Unhandled Rejection at:', { promise, reason: reason instanceof Error ? reason.stack : reason });
-    console.error('🚨 Unhandled Rejection at:', promise, 'reason:', reason instanceof Error ? reason.stack : reason);
-    // Don't exit immediately, log and investigate. Let main logic decide.
-});
-
-process.on('uncaughtException', (err) => {
-    logger.error('🔥 Uncaught Exception:', { error: err.stack });
-    console.error('🔥 Uncaught Exception:', err);
-    // This is a serious error, exit the process after attempting cleanup
-    // Ensure shutdown is called if bot instance is accessible globally
-    // process.exit(1);
-});
+// --- Add Global Error Handlers (Place near the top of your main app file, e.g., index.js, not here) ---
 // --- End Global Error Handlers ---
 
 class HyperWaBot {
     constructor() {
         this.sock = null;
         this.authPath = path.resolve('./auth_info');
-        this.storePath = path.resolve('./baileys_store.json');
+        this.storePath = path.resolve('./baileys_store.json'); // Ensure absolute path
         this.messageHandler = new MessageHandler(this);
         this.telegramBridge = null;
         this.isShuttingDown = false;
@@ -55,21 +43,26 @@ class HyperWaBot {
 
         // --- Store Setup ---
         this.msgRetryCounterCache = new NodeCache({ stdTTL: 600 }); // 10 minutes TTL for retries
-        this.keysBuffer = new NodeCache(); // For storing keys
-
         // In-Memory Store for chats, contacts, messages
         this.store = makeInMemoryStore({
-            logger: logger.child({ module: 'baileys-store' })
+            logger: logger.child({ module: 'baileys-store' }) // Use your logger with child
         });
+
         // Load store from file if it exists
         if (fs.existsSync(this.storePath)) {
             logger.info(`📂 Loading Baileys store from ${this.storePath}`);
             try {
                 this.store.readFromFile(this.storePath);
+                logger.info('✅ Baileys store loaded successfully.');
             } catch (err) {
-                logger.warn(`⚠️ Failed to load store from ${this.storePath}:`, err.message);
+                logger.error(`❌ Failed to load store from ${this.storePath}:`, err);
+                // Optionally, remove the corrupted file?
+                // try { fs.removeSync(this.storePath); } catch (rmErr) { logger.warn('⚠️ Could not remove corrupted store file:', rmErr); }
             }
+        } else {
+             logger.info(`ℹ️ No existing Baileys store file found at ${this.storePath}. Will create a new one.`);
         }
+
         // Periodically save the store
         this.storeInterval = setInterval(() => {
             if (this.store) {
@@ -113,7 +106,7 @@ class HyperWaBot {
         }
 
         await this.moduleLoader.loadModules();
-        await this.startWhatsApp();
+        await this.startWhatsApp(); // Initial start
 
         logger.info('✅ HyperWa Userbot initialized successfully!');
     }
@@ -131,11 +124,14 @@ class HyperWaBot {
         if (this.sock) {
             logger.info('🧹 Cleaning up existing WhatsApp socket');
             this.sock.ev.removeAllListeners();
+            // Note: sock.end() might not always be a promise or might behave differently
+            // It's generally handled by the connection.update event
             this.sock = null;
         }
 
         let state, saveCreds;
 
+        // Choose auth method based on configuration
         if (this.useMongoAuth) {
             logger.info('🔧 Using MongoDB auth state...');
             try {
@@ -155,46 +151,45 @@ class HyperWaBot {
         // --- Create Socket with Full Store Integration ---
         this.sock = makeWASocket({
             version,
-            printQRInTerminal: false,
+            printQRInTerminal: false, // We handle QR display ourselves
             auth: {
                 creds: state.creds,
-                keys: makeCacheableSignalKeyStore(state.keys, logger.child({ module: 'baileys-keys' })),
+                // Use makeCacheableSignalKeyStore for better performance and handling
+                // Pass a pino logger instance to it
+                keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })), // Use pino logger here
             },
-            logger: logger.child({ module: 'baileys' }),
+            logger: logger.child({ module: 'baileys' }), // Use your logger with child
             // --- Enhanced getMessage using Store ---
             getMessage: async (key) => {
                 if (!this.store) return { conversation: 'Message not found (Store not initialized)' };
 
                 try {
-                    // Load message from store
+                    // Load message from store (ensure correct parameters)
                     const msg = await this.store.loadMessage(key.remoteJid, key.id);
                     return msg?.message || undefined;
                 } catch (err) {
-                    logger.warn(`⚠️ Failed to load message ${key.id} from store:`, err.message);
+                    logger.warn(`⚠️ Failed to load message ${key.id} for ${key.remoteJid} from store:`, err.message);
                     return { conversation: 'Message not found (Store error)' };
                 }
             },
             browser: Browsers.macOS('Chrome'), // Use standard browser string
-            msgRetryCounterCache: this.msgRetryCounterCache,
-            // Optional enhancements
-            // generateHighQualityLinkPreview: true,
-            // patchMessageBeforeSending: (message) => { ... } // For modifying outgoing messages
+            msgRetryCounterCache: this.msgRetryCounterCache, // Add retry cache
+            generateHighQualityLinkPreview: true, // Optional, often useful
+            // patchMessageBeforeSending: (message) => { ... } // Optional
         });
 
-        // Bind the store to the socket's event emitter
+        // --- Bind the store to the socket's event emitter ---
         // This automatically updates the store with new messages, contacts, etc.
         this.store?.bind(this.sock.ev);
 
         // --- Use sock.ev.process for event handling ---
         this.sock.ev.process(async (events) => {
-            // Events are processed here by the store binding (chats, contacts, messages)
-            // We still handle specific logic for connection, creds, and our message handler
-
+            // --- Connection Update ---
             if (events['connection.update']) {
                 const update = events['connection.update'];
                 const { connection, lastDisconnect, qr } = update;
 
-                if (qr && !this.qrCodeSent) {
+                if (qr && !this.qrCodeSent) { // Only generate QR once per session attempt
                     this.qrCodeSent = true;
                     logger.info('📱 WhatsApp QR code generated');
                     qrcode.generate(qr, { small: true });
@@ -211,48 +206,71 @@ class HyperWaBot {
                 if (connection === 'close') {
                     const error = lastDisconnect?.error;
                     const statusCode = new Boom(error)?.output?.statusCode;
+                    // Define clear reconnect conditions
                     const shouldReconnect = statusCode !== DisconnectReason.loggedOut &&
-                                          statusCode !== DisconnectReason.badSession &&
-                                          statusCode !== DisconnectReason.connectionClosed &&
-                                          statusCode !== DisconnectReason.connectionLost; // Add more specific non-reconnect codes if needed
-
-                    logger.warn(`🔄 Connection update: ${connection}, Status: ${statusCode}, Error: ${error?.message || 'N/A'}`);
+                                          statusCode !== DisconnectReason.badSession;
 
                     if (shouldReconnect && !this.isShuttingDown) {
-                        logger.warn(`🔄 Reconnecting in 5 seconds...`);
-                        this.qrCodeSent = false; // Allow new QR on reconnect
-                        this.reconnectTimeout = setTimeout(() => this.startWhatsApp(), 5000);
+                        logger.warn(`🔄 Connection closed (Code: ${statusCode}, Error: ${error?.message || 'Unknown'}). Reconnecting in 5 seconds...`);
+                        // Reset QR flag to allow new QR on reconnect
+                        this.qrCodeSent = false;
+                        this.reconnectTimeout = setTimeout(() => this.startWhatsApp(), 5000); // Reconnect with delay
                     } else {
                         logger.error('❌ Connection closed permanently.', { statusCode, error: error?.message });
-                        if (statusCode === DisconnectReason.loggedOut ||
-                            statusCode === DisconnectReason.badSession) {
+                        if (statusCode === DisconnectReason.loggedOut || statusCode === DisconnectReason.badSession) {
                             logger.info('🗑️ Session invalidated. Clearing session data.');
-                            try {
-                                if (this.useMongoAuth) {
+                            // Clear session data
+                            if (this.useMongoAuth) {
+                                try {
+                                    // Pass DB instance or reconnect if needed
                                     const db = this.db || (await connectDb());
                                     const coll = db.collection("auth");
-                                    await coll.deleteOne({ _id: "session" });
-                                    logger.info('🗑️ MongoDB auth session cleared');
-                                } else {
-                                    await fs.remove(this.authPath);
-                                    logger.info(`🗑️ File-based auth directory (${this.authPath}) cleared`);
+                                    const deleteResult = await coll.deleteOne({ _id: "session" });
+                                    if (deleteResult.deletedCount > 0) {
+                                        logger.info('🗑️ MongoDB auth session cleared');
+                                    } else {
+                                        logger.info('ℹ️ No MongoDB auth session found to clear');
+                                    }
+                                } catch (clearError) {
+                                    logger.error('❌ Failed to clear MongoDB auth session:', clearError);
                                 }
-                            } catch (clearError) {
-                                logger.error('❌ Failed to clear auth session:', clearError);
+                            } else {
+                                // Clear file-based auth
+                                try {
+                                    const authExists = await fs.pathExists(this.authPath);
+                                    if (authExists) {
+                                        await fs.remove(this.authPath);
+                                        logger.info(`🗑️ File-based auth directory (${this.authPath}) cleared`);
+                                    } else {
+                                        logger.info(`ℹ️ File-based auth directory (${this.authPath}) not found, nothing to clear`);
+                                    }
+                                } catch (fsError) {
+                                    logger.error(`❌ Failed to clear file-based auth (${this.authPath}):`, fsError);
+                                }
+                            }
+                            // Optionally clear the store file on logout/bad session
+                            try {
+                                const storeExists = await fs.pathExists(this.storePath);
+                                if (storeExists) {
+                                    await fs.remove(this.storePath);
+                                    logger.info(`🗑️ Baileys store file (${this.storePath}) cleared`);
+                                }
+                            } catch (storeError) {
+                                 logger.warn(`⚠️ Failed to clear Baileys store file (${this.storePath}):`, storeError.message);
                             }
                         }
                         if (!this.isShuttingDown) {
-                            // Delay exit slightly to allow logs to flush
-                            setTimeout(() => process.exit(1), 1000);
+                           process.exit(1); // Exit if not shutting down intentionally
                         }
                     }
                 } else if (connection === 'open') {
                     logger.info(`✅ Connected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`);
-                    this.qrCodeSent = false;
+                    this.qrCodeSent = false; // Reset on successful connect
                     await this.onConnectionOpen();
                 }
             }
 
+            // --- Creds Update ---
             if (events['creds.update']) {
                 try {
                     await saveCreds();
@@ -261,49 +279,64 @@ class HyperWaBot {
                 }
             }
 
-            // Messages are handled by the store binding, but we still pass them to our handler
-            // for custom logic (commands, modules, etc.)
+            // --- Messages Upsert ---
+            // The store.binding handles storing messages. We handle custom logic.
             if (events['messages.upsert']) {
                 const upsert = events['messages.upsert'];
+                // Delegate to your handler
                 try {
                     await this.messageHandler.handleMessages(upsert);
                 } catch (handlerError) {
-                    logger.error('❌ Error in message handler:', handlerError);
+                     // Catch errors specifically from your message handler
+                     logger.error('💥 Error in MessageHandler.handleMessages:', handlerError);
+                     // Optionally, send an alert message to the owner or log to Telegram
                 }
             }
+            // --- Add handlers for other relevant events if needed ---
+            // e.g., messages.update, groups.update, contacts.upsert, presence.update etc.
         });
 
         // --- Pairing Logic ---
+        // This runs *after* the socket is created but before the connection is fully open
+        // It requests the pairing code if enabled and credentials are not already present
         if (this.usePairing && this.pairingPhoneNumber && !state.creds.me?.id) {
-            logger.info(`🔐 Requesting pairing code for number: ${this.pairingPhoneNumber}`);
-            try {
-                const code = await this.sock.requestPairingCode(this.pairingPhoneNumber);
-                logger.info(`🔐 Pairing code requested: ${code}`);
-                const pairingMessage = `\`\`\`\n🔐 *Pairing Code for ${config.get('bot.name')}*\n\nYour code: ${code}\n\nEnter it in WhatsApp.\`\`\``;
+             logger.info(`🔐 Requesting pairing code for number: ${this.pairingPhoneNumber}`);
+             try {
+                 // Ensure phoneNumber is a string without +
+                 const code = await this.sock.requestPairingCode(this.pairingPhoneNumber);
+                 logger.info(`🔐 Pairing code requested: ${code}`);
+                 const pairingMessage = `\`\`\`\n🔐 *Pairing Code for ${config.get('bot.name')}*\n\nYour code: ${code}\n\nEnter it in WhatsApp.\`\`\``;
 
-                console.log(pairingMessage);
-                if (this.telegramBridge) {
-                    try {
-                        await this.telegramBridge.logToTelegram('🔐 Pairing Code', pairingMessage);
-                    } catch (err) {
-                        logger.warn('⚠️ Failed to send pairing code via Telegram:', err.message);
-                    }
-                }
-            } catch (pairingError) {
-                logger.error('❌ Failed to request pairing code:', pairingError);
-                logger.info('🔄 Falling back to QR code...');
-            }
+                 // Log to console
+                 console.log(pairingMessage);
+
+                 // Send via Telegram if bridge is active
+                 if (this.telegramBridge) {
+                     try {
+                         await this.telegramBridge.logToTelegram('🔐 Pairing Code Requested', pairingMessage);
+                     } catch (err) {
+                         logger.warn('⚠️ Failed to send pairing code via Telegram:', err.message);
+                     }
+                 }
+                 // The QR code generation should still happen via the connection.update event listener if pairing fails or times out.
+
+             } catch (pairingError) {
+                 logger.error('❌ Failed to request pairing code:', pairingError);
+                 logger.info('🔄 Falling back to QR code...');
+                 // The QR code generation should still happen via the connection.update event listener.
+                 this.qrCodeSent = false; // Allow QR generation if pairing fails
+             }
         }
     }
 
+
     async onConnectionOpen() {
         logger.info(`✅ WhatsApp connection opened! User: ${this.sock.user?.id || 'Unknown'}`);
-        const fullUserId = this.sock.user?.id;
-        const jid = fullUserId ? `${fullUserId.split(':')[0]}@s.whatsapp.net` : null;
 
-        if (!config.get('bot.owner') && jid) {
-            config.set('bot.owner', jid);
-            logger.info(`👑 Owner set to: ${jid}`);
+        if (!config.get('bot.owner') && this.sock.user) {
+            const ownerId = this.sock.user.id; // Baileys usually provides the full JID correctly now
+            config.set('bot.owner', ownerId);
+            logger.info(`👑 Owner set to: ${ownerId}`);
         }
 
         if (this.telegramBridge) {
@@ -334,24 +367,25 @@ class HyperWaBot {
 
         const authMethod = this.useMongoAuth ? 'MongoDB' : 'File-based';
         const startupMessage = `🚀 *${config.get('bot.name')} v${config.get('bot.version')}* is now online!\n\n` +
-                              `🔥 *Features:*\n` +
+                              `🔥 *HyperWa Features Active:*\n` +
                               `• 📱 Modular Architecture\n` +
-                              `• 🔐 Auth: ${authMethod}\n` +
+                              `• 🔐 Auth Method: ${authMethod}\n` +
                               `• 🤖 Telegram Bridge: ${config.get('telegram.enabled') ? '✅' : '❌'}\n` +
                               `• 🔧 Custom Modules: ${config.get('features.customModules') ? '✅' : '❌'}\n` +
-                              `Type *${config.get('bot.prefix')}help* for commands!`;
+                              `Type *${config.get('bot.prefix')}help* for available commands!`;
 
         try {
             await this.sock.sendMessage(owner, { text: startupMessage });
+            logger.info(`🚀 Startup message sent to owner: ${owner}`);
         } catch (sendError) {
             logger.error(`❌ Failed to send startup message to owner (${owner}):`, sendError);
         }
 
         if (this.telegramBridge) {
             try {
-                await this.telegramBridge.logToTelegram('🚀 Bot Started', startupMessage);
+                await this.telegramBridge.logToTelegram('🚀 HyperWa Bot Started', startupMessage);
             } catch (err) {
-                logger.warn('⚠️ Telegram startup log failed:', err.message);
+                logger.warn('⚠️ Telegram log failed:', err.message);
             }
         }
     }
@@ -369,21 +403,25 @@ class HyperWaBot {
             logger.error('❌ sendMessage error:', error.message);
             throw error;
         }
-        if (this.sock.ws.readyState !== this.sock.ws.OPEN) {
-             const error = new Error('WhatsApp socket is not open');
+        // Check if the websocket is actually open
+        if (this.sock.ws?.readyState !== 1) { // 1 = WebSocket.OPEN
+             const error = new Error(`WhatsApp socket is not open (State: ${this.sock.ws?.readyState})`);
              logger.error('❌ sendMessage error:', error.message);
              throw error;
         }
         try {
-            return await this.sock.sendMessage(jid, content, options);
+            const result = await this.sock.sendMessage(jid, content, options);
+            // logger.debug(`✅ Message sent to ${jid}`); // Optional debug log
+            return result;
         } catch (error) {
             logger.error(`❌ Failed to send message to ${jid}:`, error);
-            throw error;
+            throw error; // Re-throw to let caller handle
         }
     }
 
     async shutdown() {
         if (this.isShuttingDown) {
+            logger.warn("🛑 Shutdown already initiated.");
             return; // Prevent multiple shutdown calls
         }
         logger.info('🛑 Shutting down HyperWa Userbot...');
@@ -413,19 +451,26 @@ class HyperWaBot {
 
         if (this.telegramBridge) {
             try {
+                logger.info("🔌 Shutting down Telegram bridge...");
                 await this.telegramBridge.shutdown();
+                logger.info("✅ Telegram bridge shutdown complete.");
             } catch (err) {
                 logger.warn('⚠️ Telegram shutdown error:', err.message);
             }
         }
 
+        // Gracefully end the Baileys socket if it exists
         if (this.sock) {
             try {
+                logger.info("🔌 Closing WhatsApp socket...");
                 this.sock.ev.removeAllListeners();
-                if (this.sock.ws && this.sock.ws.readyState === this.sock.ws.OPEN) {
-                    this.sock.ws.close();
+                // sock.end() might not be fully async or reliable in all cases
+                // The connection.update close event should handle cleanup mostly
+                // But calling it is still good practice
+                if (this.sock.ws && this.sock.ws.close) {
+                    this.sock.ws.close(); // Close the underlying websocket
                 }
-                logger.info('🔌 WhatsApp socket closed');
+                logger.info('✅ WhatsApp socket closed');
             } catch (closeError) {
                 logger.warn('⚠️ Error closing WhatsApp socket:', closeError.message);
             }
@@ -433,37 +478,9 @@ class HyperWaBot {
         }
 
         logger.info('✅ HyperWa Userbot shutdown complete');
+        // Optionally, close DB connection if needed globally
+        // if (this.db) { await this.db.close(); }
     }
 }
 
 module.exports = { HyperWaBot };
-
-// --- Signal Handlers (Place this in your main app file where you instantiate HyperWaBot) ---
-/*
-let botInstance; // Make sure this is accessible
-
-process.on('SIGINT', async () => {
-    logger.info('Received SIGINT signal');
-    if (botInstance) await botInstance.shutdown();
-    process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-    logger.info('Received SIGTERM signal');
-    if (botInstance) await botInstance.shutdown();
-    process.exit(0);
-});
-
-// Example instantiation in main app file (e.g., index.js)
-// const { HyperWaBot } = require('./path/to/bot');
-// (async () => {
-//     botInstance = new HyperWaBot();
-//     try {
-//         await botInstance.initialize();
-// // Make sure botInstance is accessible for signal handlers
-//     } catch (initError) {
-//         logger.error('❌ Fatal error during initialization:', initError);
-//         process.exit(1);
-//     }
-// })();
-*/
