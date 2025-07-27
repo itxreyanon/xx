@@ -1,47 +1,44 @@
 class Config {
-constructor() {
-    this.defaultConfig = {
-        bot: {
-            name: 'HyperWa',
-            company: 'Dawium Technologies',
-            prefix: '.',
-            version: '2.0.0',
-            owner: '923075417411@s.whatsapp.net',
-            clearAuthOnStart: false
-        },
-  auth: {
-    useMongoAuth: false, // or true
-    usePairingCode: true, // Enable pairing
-  },
-        admins: [
-            '923075417411',  // Just the number part, no "@s.whatsapp.net"
-            '923334445555'
-        ],  
+    constructor() {
+        this.defaultConfig = {
+            bot: {
+                name: 'HyperWa',
+                company: 'Dawium Technologies',
+                prefix: '.',
+                version: '2.0.0',
+                owner: '923417033005@s.whatsapp.net', // Include full JID
+                clearAuthOnStart: false
+            },
 
-        // Feature toggles and configurations
-        features: {
-            mode: 'public', // Bot mode: 'public' or 'private'
-            autoViewStatus: true, // Automatically view WhatsApp status updates
-            customModules: true, // Enable loading of custom modules
-            ghostMode: true,
-            rateLimiting: true, // Enable command rate limiting
-            telegramBridge: true, // Enable Telegram bridge integration
-            smartProcessing: true, // Enable smart message processing
-            editMessages: true, // Allow editing of sent messages
-            autoReact: true, // Auto react to commands
-            selfEditCommands: true,  // Allow editing of sent comand to show result
-            respondToUnknownCommands: false,  // Bot send error message on wrong commands
-            sendPermissionError: false      // bot will send error message on comnd which are not allowed to users
-        },
+            auth: {
+                useMongoAuth: true // Set to false for file-based auth
+            },
+
+            admins: [
+                '923075417411', // Just the number part, no "@s.whatsapp.net"
+                '923334445555'
+            ],
+
+            // Feature toggles and options
+            features: {
+                mode: 'public',                   // 'public' or 'private'
+                customModules: true,              // Enable custom modules
+                rateLimiting: true,               // Enable rate limiting
+                telegramBridge: true,             // Sync with Telegram
+                respondToUnknownCommands: false, // Respond to unknown commands
+                sendPermissionError: false        // Send error for disallowed commands
+            },
+
             mongo: {
                 uri: 'mongodb+srv://itxelijah07:ivp8FYGsbVfjQOkj@cluster0.wh25x.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0',
-                dbName: 'ArshmanWA'
+                dbName: 'HyperWA'
             },
+
             telegram: {
                 enabled: true,
-                botToken: '8340169817:AAE3p5yc0uSg-FOZMirWVu9sj9x4Jp8CCug',
+                botToken: '7822179405:AAHI1zW7qkXZsqOtyu9NeRdmquwbx1aZu0o',
                 botPassword: '1122',
-                chatId: '-1002846269080',
+                chatId: '-1002783833178',
                 logChannel: '-100000000000',
                 features: {
                     topics: true,
@@ -50,30 +47,32 @@ constructor() {
                     callLogs: true,
                     statusSync: true,
                     biDirectional: true,
-                    welcomeMessage: false,       // set to false to disable welcome message sent when topic created
-                    sendOutgoingMessages: false,  // set to false to stop forwarding myside messages
+                    welcomeMessage: false,         // Message on topic creation
+                    sendOutgoingMessages: false,   // Forward messages from this side
                     presenceUpdates: true,
                     readReceipts: false,
                     animatedStickers: true
                 }
             },
-            "help": {
-  // Default help style:
-  // 1 = Box-style (╔══ module ══)
-  // 2 = Divider style (██▓▒░ module)
-  "defaultStyle": 1,
 
-  // Default display mode for help entries:
-  // "description" = show command descriptions
-  // "usage" = show usage info instead
-  // "none" = show only command names
-  "defaultShow": "description"
-},
+            help: {
+                // Default help style:
+                // 1 = Box style (╔══ module ══)
+                // 2 = Divider style (██▓▒░ module)
+                defaultStyle: 1,
+
+                // Default display mode for commands:
+                // "description" = show command descriptions
+                // "usage" = show usage string
+                // "none" = show only command names
+                defaultShow: 'description'
+            },
+
             logging: {
-                level: 'info',
-                saveToFile: true,
-                maxFileSize: '10MB',
-                maxFiles: 5
+                level: 'info',        // Log level: info, warn, error, debug
+                saveToFile: true,     // Write logs to file
+                maxFileSize: '10MB',  // Max size per log file
+                maxFiles: 5           // Max number of rotated files
             }
         };
 
