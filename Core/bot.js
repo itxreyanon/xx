@@ -529,7 +529,8 @@ class HyperWaBot {
     }
 
     async handleConnectionClose(lastDisconnect) {
-        const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode || 0;
+        const statusCode = lastDisconnect?.error?.output?.statusCode || 0;
+
         const errorMessage = lastDisconnect?.error?.message || 'Unknown error';
         
         logger.warn(`🔌 Connection closed. Status: ${statusCode}, Error: ${errorMessage}`);
