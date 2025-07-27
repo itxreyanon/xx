@@ -132,31 +132,43 @@ class HyperWaBot {
         }
     }
 
-    async initializeTelegramBridge() {
-        if (!config.get('telegram.enabled')) return;
+async initializeTelegramBridge() {
+    if (!config.get('telegram.enabled')) return;
+
+    try {
+        const TelegramBridge = require('../telegram/bridge');
+        this.telegramBridge = new TelegramBridge(this);
+
+        logger.info('🚀 Initializing Telegram bridge...');
+        await this.telegramBridge.initialize();
+
+        logger.info('✅ Telegram bridge initialized');
 
         try {
-            const TelegramBridge = require('../telegram/bridge');
-            this.telegramBridge = new TelegramBridge(this);
-            await this.telegramBridge.initialize();
-            logger.info('✅ Telegram bridge initialized');
-
-            try {
-                await this.telegramBridge.sendStartMessage();
-            } catch (err) {
-                logger.warn('⚠️ Failed to send start message via Telegram:', err.message);
-            }
-        } catch (error) {
-           logger.warn('⚠️ Telegram bridge failed to initialize:', {
-  message: error.message,
-  stack: error.stack,
-  name: error.name,
-  error, // logs the full object for good measure
-});
-
-            this.telegramBridge = null;
+            await this.telegramBridge.sendStartMessage();
+        } catch (err) {
+            logger.warn('⚠️ Failed to send start message via Telegram:', err?.message || err);
         }
+
+    } catch (error) {
+        const safeError = error instanceof Error
+            ? error
+            : new Error(typeof error === 'string' ? error : JSON.stringify(error));
+
+        // Warn-level log for visibility in production logs
+        logger.warn(`⚠️ Telegram bridge failed to initialize: ${safeError.message}`);
+
+        // Debug log with full stack and original error object
+        logger.debug('📦 Telegram init error details:', {
+            name: safeError.name,
+            message: safeError.message,
+            stack: safeError.stack,
+            raw: error,
+        });
+
+        this.telegramBridge = null;
     }
+}
 
     async startWhatsApp() {
         if (this.isConnecting) {
