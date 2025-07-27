@@ -133,24 +133,23 @@ class HyperWaBot {
     }
 
     async initializeTelegramBridge() {
-        if (!config.get('telegram.enabled')) return;
-
-        try {
-            const TelegramBridge = require('../telegram/bridge');
-            this.telegramBridge = new TelegramBridge(this);
-            await this.telegramBridge.initialize();
-            logger.info('✅ Telegram bridge initialized');
-
+        if (config.get('telegram.enabled')) {
             try {
-                await this.telegramBridge.sendStartMessage();
-            } catch (err) {
-                logger.warn('⚠️ Failed to send start message via Telegram:', err.message);
+                const TelegramBridge = require('../telegram/bridge');
+                this.telegramBridge = new TelegramBridge(this);
+                await this.telegramBridge.initialize();
+                logger.info('✅ Telegram bridge initialized');
+
+                try {
+                    await this.telegramBridge.sendStartMessage();
+                } catch (err) {
+                    logger.warn('⚠️ Failed to send start message via Telegram:', err.message);
+                }
+            } catch (error) {
+                logger.warn('⚠️ Telegram bridge failed to initialize:', error.message);
+                this.telegramBridge = null;
             }
-        } catch (error) {
-            logger.warn('⚠️ Telegram bridge failed to initialize:', error.message);
-            this.telegramBridge = null;
         }
-    }
 
     async startWhatsApp() {
         if (this.isConnecting) {
