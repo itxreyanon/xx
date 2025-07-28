@@ -366,8 +366,6 @@ if (update.pairingCode) {
     } else {
         console.log('Pairing Code:', update.pairingCode);
     }
-}
-    }
         }
 
         if (connection === 'close') {
