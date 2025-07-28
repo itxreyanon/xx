@@ -331,54 +331,67 @@ class HyperWaBot {
         }
     }
 
+
+    // Inside handleConnectionUpdate method:
     async handleConnectionUpdate(update) {
         const { connection, lastDisconnect, qr } = update;
 
-        // --- Handle Pairing Code Request ---
-        // This is the key part: request pairing code when connecting and not registered
-        if (usePairingCode && connection === 'connecting' && this.sock && !this.sock.authState?.creds?.registered) {
-            // Check if we haven't already requested for this session attempt
-            // A simple way is to check if qr was ever generated/sent in this session
-            if (!this.qrCodeSent) {
+        // --- Improved Pairing Code Logic ---
+        // Request pairing code when:
+        // 1. Pairing mode is enabled (usePairingCode is true)
+        // 2. Connection state is 'connecting'
+        // 3. We don't have a user yet (not logged in)
+        // 4. We haven't already requested/sent a QR for this attempt
+        if (usePairingCode && connection === 'connecting' && !this.sock?.user && !this.qrCodeSent) {
+            logger.info('🔐 Preparing to request pairing code...');
+            // Check auth state more directly
+            const isRegistered = this.sock?.authState?.creds?.registered;
+            // Only proceed if we are definitely NOT registered/logged in
+            // undefined or false means we need to log in
+            if (!isRegistered) {
                 logger.info('🔐 Requesting pairing code...');
                 const question = (text) => new Promise((resolve) => {
                     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
                     rl.question(text, (answer) => {
                         rl.close();
-                        resolve(answer.trim()); // Trim whitespace
+                        resolve(answer.trim());
                     });
                 });
 
                 try {
-                    // Ensure the phone number format is correct (no leading +, just digits)
                     let phoneNumber = await question('Please enter your phone number (with country code, e.g., 1234567890):\n');
-                    // Basic sanitization: remove any non-digit characters (like +)
-                    phoneNumber = phoneNumber.replace(/\D/g, '');
+                    phoneNumber = phoneNumber.replace(/\D/g, ''); // Sanitize
                     if (!phoneNumber) {
                         throw new Error("Invalid phone number entered.");
                     }
-                    const code = await this.sock.requestPairingCode(phoneNumber);
-                    logger.info(`📱 Pairing code requested for ${phoneNumber}: ${code}`);
-                    // Optionally send to Telegram bridge if available
-                    if (this.telegramBridge) {
-                        try {
-                            await this.telegramBridge.logToTelegram('📱 Pairing Code', `Your pairing code for ${phoneNumber} is: \`${code}\``);
-                        } catch (err) {
-                            logger.warn('⚠️ Failed to send pairing code via Telegram:', err.message);
+                    // Ensure sock is available and method exists (it should be at this point)
+                    if (this.sock && typeof this.sock.requestPairingCode === 'function') {
+                        const code = await this.sock.requestPairingCode(phoneNumber);
+                        logger.info(`📱 Pairing code requested for ${phoneNumber}: ${code}`);
+                        if (this.telegramBridge) {
+                            try {
+                                await this.telegramBridge.logToTelegram('📱 Pairing Code', `Your pairing code for ${phoneNumber} is: \`${code}\``);
+                            } catch (err) {
+                                logger.warn('⚠️ Failed to send pairing code via Telegram:', err.message);
+                            }
                         }
+                        // Crucially, mark that we've handled the login initiation for this session
+                        this.qrCodeSent = true;
+                    } else {
+                       logger.error("❌ Socket or requestPairingCode method not available when trying to request code.");
                     }
-                    // Mark that we've handled pairing for this connection attempt
-                    // We use qrCodeSent as a flag even though we're not using QR, to prevent re-requesting
-                    this.qrCodeSent = true;
                 } catch (err) {
                     logger.error('❌ Error requesting pairing code:', err.message || err);
-                    // Don't exit, let the connection attempt continue or fail naturally
-                    // Maybe it will fall back to QR if pairing fails?
+                    // Consider if we should fallback to QR or just let it fail
                 }
+            } else {
+                logger.debug("🔐 Session appears to be registered, skipping pairing code request.");
             }
         }
+        // --- End Pairing Code Logic ---
 
-        if (qr && !usePairingCode) { // Only show QR if not using pairing code
+        // --- QR Code Logic (conditional) ---
+        if (qr && !usePairingCode) { // Only show QR if NOT using pairing code
             logger.info('📱 WhatsApp QR code generated');
             qrcode.generate(qr, { small: true });
             if (this.telegramBridge) {
@@ -390,6 +403,7 @@ class HyperWaBot {
             }
             this.qrCodeSent = true; // Mark QR as sent
         }
+        // --- End QR Code Logic ---
 
         if (connection === 'close') {
             // Reset the flag on connection close to allow new pairing/QR on reconnect
@@ -401,12 +415,11 @@ class HyperWaBot {
             await this.onConnectionOpen();
         } else if (connection === 'connecting') {
             logger.info('🔄 Connecting to WhatsApp...');
-            // Reset the flag at the start of a new connection attempt
-            // It will be set again if pairing code is requested or QR is generated
-            // this.qrCodeSent = false; // Actually, better to set it just before requesting pairing/QR
+            // Reset the flag at the start of a new connection attempt IF needed,
+            // but the pairing code logic above handles setting it.
+            // this.qrCodeSent = false; // Not resetting here avoids race conditions
         }
     }
-
     async handleConnectionClose(lastDisconnect) {
         const statusCode = lastDisconnect?.error?.output?.statusCode || 0;
         const errorMessage = lastDisconnect?.error?.message || 'Unknown error';
