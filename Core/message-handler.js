@@ -142,7 +142,7 @@ for (const [key, cmdHandler] of this.commandHandlers.entries()) {
     params = rawText.slice(key.length).trim().split(/\s+/);
     break;
   }
-}
+
 
 // Fallback: classic prefix + command
 if (!handler) {
@@ -173,7 +173,8 @@ if (!this.checkPermissions(msg, command)) {
         }
     }
 
-    const handler = this.commandHandlers.get(command);
+    if (!handler) handler = this.commandHandlers.get(command);
+
     const respondToUnknown = config.get('features.respondToUnknownCommands', false);
 
     if (handler) {
