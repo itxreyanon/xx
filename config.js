@@ -6,14 +6,12 @@ class Config {
                 company: 'Dawium Technologies',
                 prefix: '.',
                 version: '2.0.0',
-                owner: '923075417411@s.whatsapp.net',
+                owner: '923417033005@s.whatsapp.net', // Include full JID
                 clearAuthOnStart: false
             },
 
             auth: {
-                method: 'pairing',              // or 'qr'
-                usePairingCode: true,
-                phoneNumber: '923075417411'     // without + or @
+                useMongoAuth: true // Set to false for file-based auth
             },
 
             admins: [
