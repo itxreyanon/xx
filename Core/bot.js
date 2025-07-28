@@ -140,39 +140,35 @@ async startWhatsApp() {
     // ✅ CORRECT: WAIT FOR READY EVENT
     // -------------------------------
     if (this.usePairingCode && !state.creds.registered) {
-        const promptForNumber = async () => {
-            try {
-                const phoneNumber = await question('📞 Enter your WhatsApp number (e.g., +1234567890):\n');
-                if (!phoneNumber || !/^\+\d{10,15}$/.test(phoneNumber)) {
-                    logger.error('❌ Invalid phone number. Use international format.');
-                    return this.sock.end();
-                }
-
-                logger.info(`📲 Requesting pairing code for: ${phoneNumber}`);
-                const code = await this.sock.requestPairingCode(phoneNumber);
-                logger.info(`✅ Pairing Code: ${code}`);
-                console.log(`\n🟩 YOUR PAIRING CODE: ${code}\n`);
-
-                if (this.telegramBridge) {
-                    try {
-                        await this.telegramBridge.sendMessage(`📲 Your pairing code: \`${code}\``, { parse_mode: 'Markdown' });
-                    } catch (err) {
-                        logger.warn('⚠️ Failed to send code to Telegram:', err.message);
-                    }
-                }
-            } catch (err) {
-                logger.error('❌ Failed to get pairing code:', err);
-                setTimeout(() => this.startWhatsApp(), 5000);
-            }
-        };
-
-        // 🔑 Wait for the correct event
         this.sock.ev.on('connection.update', async (update) => {
             const { receivedPendingNotifications } = update;
 
+            // ✅ Only now is it safe to request pairing code
             if (receivedPendingNotifications) {
-                logger.info('✅ Socket ready for pairing code request');
-                await promptForNumber();
+                try {
+                    const phoneNumber = await question('📞 Enter your WhatsApp number (e.g., +1234567890):\n');
+                    if (!phoneNumber || !/^\+\d{10,15}$/.test(phoneNumber)) {
+                        logger.error('❌ Invalid phone number format. Use international format.');
+                        return this.sock.end();
+                    }
+
+                    logger.info(`📲 Requesting pairing code for: ${phoneNumber}`);
+                    const code = await this.sock.requestPairingCode(phoneNumber);
+                    logger.info(`✅ Pairing Code: ${code}`);
+                    console.log(`\n🟩 YOUR PAIRING CODE: ${code}\n`);
+
+                    if (this.telegramBridge) {
+                        try {
+                            await this.telegramBridge.sendMessage(`📲 Your pairing code: \`${code}\``, { parse_mode: 'Markdown' });
+                            logger.info('📩 Code sent to Telegram');
+                        } catch (err) {
+                            logger.warn('⚠️ Failed to send code to Telegram:', err.message);
+                        }
+                    }
+                } catch (err) {
+                    logger.error('❌ Failed to get pairing code:', err);
+                    setTimeout(() => this.startWhatsApp(), 5000);
+                }
             }
         });
     }
@@ -228,7 +224,6 @@ async startWhatsApp() {
         setTimeout(() => this.startWhatsApp(), 5000);
     }
 }
-
     async getMessage(key) {
         // Try to get message from store first
         const message = this.store.loadMessage(key.remoteJid, key.id)
