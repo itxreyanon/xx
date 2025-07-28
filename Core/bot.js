@@ -1,3 +1,4 @@
+
 const { Boom } = require('@hapi/boom')
 const NodeCache = require('node-cache')
 const { 
@@ -31,7 +32,7 @@ const { makeInMemoryStore } = require('./store')
 
 // Readline interface for pairing code
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
-const question = (text: string) => new Promise<string>((resolve) => rl.question(text, resolve))
+const question = (text) => new Promise((resolve) => rl.question(text, resolve))
 
 class HyperWaBot {
     constructor() {
@@ -84,7 +85,7 @@ class HyperWaBot {
         logger.info('✅ HyperWa Userbot initialized successfully!')
     }
 
-async startWhatsApp() {
+   async startWhatsApp() {
     let state, saveCreds;
 
     if (this.sock) {
@@ -105,7 +106,7 @@ async startWhatsApp() {
                 ({ state, saveCreds } = await useMultiFileAuthState(this.authPath));
             } catch (fileAuthError) {
                 logger.error('❌ Failed to initialize file-based auth state:', fileAuthError.stack || fileAuthError);
-                throw fileAuthError;
+                throw fileAuthError; // Rethrow to be caught by the outer try-catch
             }
         }
     } else {
@@ -114,7 +115,7 @@ async startWhatsApp() {
             ({ state, saveCreds } = await useMultiFileAuthState(this.authPath));
         } catch (fileAuthError) {
             logger.error('❌ Failed to initialize file-based auth state:', fileAuthError.stack || fileAuthError);
-            throw fileAuthError;
+            throw fileAuthError; // Rethrow to be caught by the outer try-catch
         }
     }
 
@@ -143,69 +144,47 @@ async startWhatsApp() {
             printQRInTerminal: false
         });
 
+        // Bind store to socket events
         this.store.bind(this.sock.ev);
 
+        // Pairing code support
+if (this.usePairingCode && !this.sock.authState.creds.registered) {
+    try {
+        const phoneNumber = await question('Please enter your phone number (e.g., +1234567890):\n');
+        if (!phoneNumber || !/^\+\d{10,15}$/.test(phoneNumber)) {
+            logger.error('❌ Invalid phone number format. Please use international format (e.g., +1234567890)');
+            throw new Error('Invalid phone number format');
+        }
+        logger.info(`Requesting pairing code for phone number: ${phoneNumber}`);
+        const code = await this.sock.requestPairingCode(phoneNumber);
+        logger.info(`✅ Pairing code generated: ${code}`);
+        console.log(`Your pairing code: ${code}`); // Display in terminal for clarity
+        if (this.telegramBridge) {
+            try {
+                await this.telegramBridge.sendMessage(`Your pairing code: ${code}`);
+                logger.info('✅ Pairing code sent to Telegram');
+            } catch (telegramError) {
+                logger.warn('⚠️ Failed to send pairing code to Telegram:', telegramError.message);
+            }
+        }
+    } catch (pairingError) {
+        logger.error('❌ Failed to generate or process pairing code:', {
+            message: pairingError.message,
+            stack: pairingError.stack,
+            name: pairingError.name
+        });
+        throw pairingError; // Rethrow to trigger reconnect or exit
+    }
+}
 
-        // Event handlers
+        // Process all events
         this.sock.ev.process(async (events) => {
             logger.debug('Processing Baileys events:', Object.keys(events));
-
             // Connection updates
             if (events['connection.update']) {
                 const update = events['connection.update'];
-                const { connection, lastDisconnect, qr } = update;
-
-                    // Pairing code support
-        // 📞 PAIRING CODE: Wait for user input only if enabled and not registered
-if (this.usePairingCode) {
-    // We'll handle this after socket is ready
-    let hasRequestedCode = false;
-
-    this.sock.ev.on('connection.update', async (update) => {
-        const { connection } = update;
-        if (connection === 'connecting' && !hasRequestedCode) {
-            // Prevent multiple runs
-            hasRequestedCode = true;
-
-            // Only proceed if not already registered
-            if (!this.sock.authState?.creds?.registered) {
-                try {
-                    logger.info('🔐 Connection starting, preparing for pairing code...');
-
-                    // Ask for number
-                    const phoneNumber = await question('📞 Enter WhatsApp number (e.g., +1234567890): ');
-
-                    const cleanedNumber = phoneNumber.trim();
-                    if (!/^\+\d{10,15}$/.test(cleanedNumber)) {
-                        throw new Error('Invalid phone number format');
-                    }
-
-                    logger.info(`📲 Requesting pairing code for ${cleanedNumber}...`);
-                    const code = await this.sock.requestPairingCode(cleanedNumber);
-
-                    console.log(`\n🔑🔑🔑 YOUR PAIRING CODE: ${code} 🔑🔑🔑\n`);
-                    logger.info(`✅ Pairing code generated: ${code}`);
-
-                    // Optional: Send to Telegram
-                    if (this.telegramBridge) {
-                        try {
-                            await this.telegramBridge.sendMessage(`🔑 Code: \`${code}\``, { parse_mode: 'Markdown' });
-                        } catch (err) {
-                            logger.warn('⚠️ Failed to send code to Telegram:', err.message);
-                        }
-                    }
-                } catch (err) {
-                    logger.error('❌ Failed to request pairing code:', {
-                        message: err.message,
-                        stack: err.stack
-                    });
-                    setTimeout(() => this.startWhatsApp(), 5000);
-                }
-            }
-        }
-    });
-}
-
+                const { connection, lastDisconnect } = update;
+                
                 if (connection === 'close') {
                     const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
 
@@ -237,14 +216,15 @@ if (this.usePairingCode) {
 
             // History sync
             if (events['messaging-history.set']) {
-                const { chats, contacts, messages, syncType } = events['messaging-history.set'];
+                const { chats, contacts, messages, isLatest, progress, syncType } = events['messaging-history.set'];
                 logger.info(`History sync: ${chats.length} chats, ${contacts.length} contacts, ${messages.length} msgs`);
+                
                 if (syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
                     this.onDemandMap.set(messages[0].key.id, syncType);
                 }
             }
 
-            // Messages update (reactions, poll updates, etc.)
+            // Message updates (deletions, reactions, etc)
             if (events['messages.update']) {
                 for (const { key, update } of events['messages.update']) {
                     if (update.pollUpdates) {
@@ -265,6 +245,7 @@ if (this.usePairingCode) {
                 logger.debug('Call event:', events.call);
             }
 
+            // Label events
             if (events['labels.association']) {
                 logger.debug('Label association:', events['labels.association']);
             }
@@ -273,12 +254,12 @@ if (this.usePairingCode) {
                 logger.debug('Label edit:', events['labels.edit']);
             }
 
+            // Newsletter events
             if (events['newsletter.join']) {
                 logger.debug('Newsletter join:', events['newsletter.join']);
             }
         });
 
-        // Wait for connection open or timeout
         await new Promise((resolve, reject) => {
             const connectionTimeout = setTimeout(() => {
                 if (!this.sock.user) {
@@ -305,10 +286,9 @@ if (this.usePairingCode) {
             name: error.name
         });
         setTimeout(() => this.startWhatsApp(), 5000);
-        throw error;
+        throw error; // Rethrow to allow main.js to catch and log
     }
 }
-
 
     async getMessage(key) {
         // Try to get message from store first
