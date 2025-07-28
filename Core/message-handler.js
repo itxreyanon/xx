@@ -125,85 +125,52 @@ async handleCommand(msg, text) {
     const sender = msg.key.remoteJid;
     const participant = msg.key.participant || sender;
     const prefix = config.get('bot.prefix');
-    const rawText = text.toLowerCase();
 
-    let command = null;
-    let params = [];
-    let handler = null;
+    const args = text.slice(prefix.length).trim().split(/\s+/);
+    const command = args[0].toLowerCase();
+    const params = args.slice(1);
 
-    // Match full key (emoji or alias)
-    for (const [key, cmdHandler] of this.commandHandlers.entries()) {
-        if (rawText.startsWith(key)) {
-            command = key;
-            handler = cmdHandler;
-            params = rawText.slice(key.length).trim().split(/\s+/);
-            break;
-        }
+if (!this.checkPermissions(msg, command)) {
+    if (config.get('features.sendPermissionError', false)) {
+        return this.bot.sendMessage(sender, {
+            text: '❌ You don\'t have permission to use this command.'
+        });
     }
+    return; // silently ignore
+}
 
-    // Fallback: classic prefix + command
-    if (!handler) {
-        if (!rawText.startsWith(prefix)) return;
-        const sliced = rawText.slice(prefix.length).trim().split(/\s+/);
-        command = sliced[0].toLowerCase();
-        params = sliced.slice(1);
-        handler = this.commandHandlers.get(prefix + command);
-    }
-
-    if (!handler) {
-        const respondToUnknown = config.get('features.respondToUnknownCommands', false);
-        if (respondToUnknown) {
-            await this.bot.sendMessage(sender, {
-                text: `❓ Unknown command: ${command}\nType *${prefix}menu* for available commands.`
-            });
-        }
-        return;
-    }
-
-    // Check permissions
-    if (!this.checkPermissions(msg, command)) {
-        if (config.get('features.sendPermissionError', false)) {
-            await this.bot.sendMessage(sender, {
-                text: '❌ You don\'t have permission to use this command.'
-            });
-        }
-        return;
-    }
-
-    // Rate limiting
     const userId = participant.split('@')[0];
     if (config.get('features.rateLimiting')) {
         const canExecute = await rateLimiter.checkCommandLimit(userId);
         if (!canExecute) {
             const remainingTime = await rateLimiter.getRemainingTime(userId);
-            await this.bot.sendMessage(sender, {
+            return this.bot.sendMessage(sender, {
                 text: `⏱️ Rate limit exceeded. Try again in ${Math.ceil(remainingTime / 1000)} seconds.`
             });
-            return;
         }
     }
 
-    // ⏳ React only if not silent
-    if (!handler?.silent) {
-        await this.bot.sock.sendMessage(sender, {
-            react: { key: msg.key, text: '⏳' }
-        });
-    }
+    const handler = this.commandHandlers.get(command);
+    const respondToUnknown = config.get('features.respondToUnknownCommands', false);
+
+    if (handler) {
+    // Always add ⏳ reaction for ALL commands
+    await this.bot.sock.sendMessage(sender, {
+        react: { key: msg.key, text: '⏳' }
+    });
 
     try {
         await handler.execute(msg, params, {
             bot: this.bot,
             sender,
             participant,
-            isGroup: sender.endsWith('@g.us'),
-            silent: handler?.silent === true
+            isGroup: sender.endsWith('@g.us')
         });
 
-        if (!handler?.silent) {
-            await this.bot.sock.sendMessage(sender, {
-                react: { key: msg.key, text: '' }
-            });
-        }
+        // Clear reaction on success for ALL commands
+        await this.bot.sock.sendMessage(sender, {
+            react: { key: msg.key, text: '' }
+        });
 
         logger.info(`✅ Command executed: ${command} by ${participant}`);
 
@@ -213,16 +180,15 @@ async handleCommand(msg, text) {
         }
 
     } catch (error) {
-        if (!handler?.silent) {
-            await this.bot.sock.sendMessage(sender, {
-                react: { key: msg.key, text: '❌' }
-            });
-        }
+        // Keep ❌ reaction on error (don't clear it)
+        await this.bot.sock.sendMessage(sender, {
+            react: { key: msg.key, text: '❌' }
+        });
 
         logger.error(`❌ Command failed: ${command} | ${error.message || 'No message'}`);
         logger.debug(error.stack || error);
 
-        if (!handler?.silent && !error._handledBySmartError && error?.message) {
+        if (!error._handledBySmartError && error?.message) {
             await this.bot.sendMessage(sender, {
                 text: `❌ Command failed: ${error.message}`
             });
@@ -232,6 +198,13 @@ async handleCommand(msg, text) {
             await this.bot.telegramBridge.logToTelegram('❌ Command Error',
                 `Command: ${command}\nError: ${error.message}\nUser: ${participant}`);
         }
+    }
+
+
+    } else if (respondToUnknown) {
+        await this.bot.sendMessage(sender, {
+            text: `❓ Unknown command: ${command}\nType *${prefix}menu* for available commands.`
+        });
     }
 }
 
