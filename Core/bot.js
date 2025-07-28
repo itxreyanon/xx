@@ -69,10 +69,9 @@ class HyperWaBot {
         logger.info('✅ HyperWa Userbot initialized successfully!');
     }
 
+
 async startWhatsApp() {
     let state, saveCreds;
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
     if (this.sock) {
         logger.info('🧹 Cleaning up existing WhatsApp socket');
@@ -125,6 +124,7 @@ async startWhatsApp() {
             this.sock.ev.on('connection.update', async (update) => {
                 const { connection, qr, lastDisconnect } = update;
 
+                // QR fallback (if selected)
                 if (qr && config.get('auth.method') === 'qr') {
                     if (!this.qrCodeSent) {
                         this.qrCodeSent = true;
@@ -141,6 +141,7 @@ async startWhatsApp() {
                     }
                 }
 
+                // Auto-pairing with phone number from config
                 if (connection === 'connecting' && !this.sock.user && config.get('auth.method') === 'pairing') {
                     if (!this.qrCodeSent) {
                         this.qrCodeSent = true;
@@ -149,12 +150,6 @@ async startWhatsApp() {
                         if (!phoneNumber) {
                             logger.error('❌ No phone number provided for pairing code');
                             return reject(new Error('Phone number missing for pairing'));
-                        }
-
-                        const confirm = await question(`👉 Start pairing with ${phoneNumber}? (y/N): `);
-                        if (confirm.toLowerCase() !== 'y') {
-                            logger.info('❌ Pairing canceled by user');
-                            return process.exit(1);
                         }
 
                         try {
@@ -175,7 +170,6 @@ async startWhatsApp() {
 
                 if (connection === 'open') {
                     clearTimeout(connectionTimeout);
-                    rl.close();
                     resolve();
                 }
 
