@@ -147,33 +147,48 @@ class HyperWaBot {
         this.store.bind(this.sock.ev);
 
         // Pairing code support
-if (this.usePairingCode && !this.sock.authState.creds.registered) {
-    try {
-        const phoneNumber = await question('Please enter your phone number (e.g., +1234567890):\n');
-        if (!phoneNumber || !/^\+\d{10,15}$/.test(phoneNumber)) {
-            logger.error('❌ Invalid phone number format. Please use international format (e.g., +1234567890)');
-            throw new Error('Invalid phone number format');
-        }
-        logger.info(`Requesting pairing code for phone number: ${phoneNumber}`);
-        const code = await this.sock.requestPairingCode(phoneNumber);
-        logger.info(`✅ Pairing code generated: ${code}`);
-        console.log(`Your pairing code: ${code}`); // Display in terminal for clarity
-        if (this.telegramBridge) {
+⌄
+⌄
+⌄
+⌄
+⌄
+⌄
+⌄
+⌄
+⌄
+// AFTER creating this.sock, BEFORE the ev.process() block
+if (this.usePairingCode) {
+    this.sock.ev.on('connection.update', async (update) => {
+        const { receivedPendingNotifications } = update;
+
+        // This is the signal that the socket is ready to receive pairing code request
+        if (receivedPendingNotifications && !this.sock.authState.creds.registered) {
             try {
-                await this.telegramBridge.sendMessage(`Your pairing code: ${code}`);
-                logger.info('✅ Pairing code sent to Telegram');
-            } catch (telegramError) {
-                logger.warn('⚠️ Failed to send pairing code to Telegram:', telegramError.message);
+                const phoneNumber = await question('Please enter your phone number (e.g., +1234567890):\n');
+                if (!phoneNumber || !/^\+\d{10,15}$/.test(phoneNumber)) {
+                    logger.error('❌ Invalid phone number format. Use international format (e.g., +1234567890)');
+                    return this.sock.end(); // stop if invalid
+                }
+
+                logger.info(`📲 Requesting pairing code for: ${phoneNumber}`);
+                const code = await this.sock.requestPairingCode(phoneNumber);
+                logger.info(`✅ Pairing code: ${code}`);
+                console.log(`\n🟩 YOUR PAIRING CODE: ${code}\n`); // Make it obvious
+
+                if (this.telegramBridge) {
+                    try {
+                        await this.telegramBridge.sendMessage(`📲 WhatsApp Pairing Code: \`${code}\``, { parse_mode: 'Markdown' });
+                        logger.info('📩 Code sent to Telegram');
+                    } catch (err) {
+                        logger.warn('⚠️ Could not send code to Telegram:', err.message);
+                    }
+                }
+            } catch (err) {
+                logger.error('❌ Failed to request pairing code:', err);
+                setTimeout(() => this.startWhatsApp(), 5000); // retry on fail
             }
         }
-    } catch (pairingError) {
-        logger.error('❌ Failed to generate or process pairing code:', {
-            message: pairingError.message,
-            stack: pairingError.stack,
-            name: pairingError.name
-        });
-        throw pairingError; // Rethrow to trigger reconnect or exit
-    }
+    });
 }
 
         // Process all events
