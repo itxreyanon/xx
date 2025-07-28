@@ -33,7 +33,7 @@ class InMemoryStore extends EventEmitter {
         this.labels = {};
         this.chatLabels = {};
         
-        // Message Indexing
+        // Enhanced Message Indexing
         this.messageIndex = {
             byId: {},
             byRemoteJid: {},
@@ -48,6 +48,7 @@ class InMemoryStore extends EventEmitter {
         this.maxMessagesPerChat = options.maxMessagesPerChat || 1000;
         this.autoSaveTimer = null;
 
+        // Initialize
         if (fs.existsSync(this.filePath)) {
             this.loadFromFile();
         }
@@ -57,9 +58,10 @@ class InMemoryStore extends EventEmitter {
         }
     }
 
-    /* ==================== CORE METHODS ==================== */
+    /* ==================== CORE STORE METHODS ==================== */
 
     startAutoSave() {
+        this.stopAutoSave(); // Clear existing timer
         this.autoSaveTimer = setInterval(() => this.saveToFile(), this.autoSaveInterval);
         this.logger.info(`Auto-save enabled (${this.autoSaveInterval}ms interval)`);
     }
@@ -73,7 +75,7 @@ class InMemoryStore extends EventEmitter {
 
     save() {
         return {
-            version: 2,
+            version: 3,
             chats: this.chats,
             contacts: this.contacts,
             messages: this.messages,
@@ -140,7 +142,31 @@ class InMemoryStore extends EventEmitter {
         }
     }
 
-    /* ==================== MESSAGE METHODS ==================== */
+    clear() {
+        this.chats = {};
+        this.contacts = {};
+        this.messages = {};
+        this.presences = {};
+        this.groupMetadata = {};
+        this.broadcastListInfo = {};
+        this.callOffer = {};
+        this.stickerPacks = {};
+        this.authState = {};
+        this.syncedHistory = {};
+        this.pollMessages = {};
+        this.newsletterMetadata = {};
+        this.labels = {};
+        this.chatLabels = {};
+        this.messageIndex = {
+            byId: {},
+            byRemoteJid: {},
+            byParticipant: {},
+            byPollId: {}
+        };
+        this.logger.info("Store cleared");
+    }
+
+    /* ==================== MESSAGE HANDLING ==================== */
 
     _indexMessage(msg) {
         if (!msg?.key) return;
@@ -149,7 +175,11 @@ class InMemoryStore extends EventEmitter {
         const pollId = msg.message?.pollCreationMessage?.pollCreationKey?.id;
 
         // Index by message ID
-        this.messageIndex.byId[id] = { remoteJid, timestamp: msg.messageTimestamp };
+        this.messageIndex.byId[id] = { 
+            remoteJid, 
+            timestamp: msg.messageTimestamp,
+            participant
+        };
 
         // Index by chat
         if (remoteJid) {
@@ -206,6 +236,13 @@ class InMemoryStore extends EventEmitter {
         return this.messages[jid]?.[id];
     }
 
+    getMessagesByParticipant(jid, participant) {
+        const messageIds = this.messageIndex.byParticipant[participant] || [];
+        return messageIds
+            .map(id => this.loadMessage(jid, id))
+            .filter(Boolean);
+    }
+
     getPollMessage(pollId) {
         const messageId = this.messageIndex.byPollId[pollId];
         return messageId ? this.loadMessage(null, messageId) : null;
@@ -227,22 +264,23 @@ class InMemoryStore extends EventEmitter {
             });
         };
 
-        // Contacts
+        // Core Events
         safeEmit("contacts.set", this.setContacts);
         safeEmit("contacts.upsert", this.upsertContact);
         safeEmit("contacts.update", this.updateContact);
+        safeEmit("contacts.delete", this.deleteContact);
 
-        // Chats
         safeEmit("chats.set", this.setChats);
         safeEmit("chats.upsert", this.upsertChat);
         safeEmit("chats.update", this.updateChat);
+        safeEmit("chats.delete", this.deleteChat);
 
-        // Messages
         safeEmit("messages.set", ({ messages, jid }) => this.setMessages(jid, messages));
         safeEmit("messages.upsert", ({ messages, type }) => {
             messages.forEach(msg => this.upsertMessage(msg, type));
         });
         safeEmit("messages.update", this.updateMessage);
+        safeEmit("messages.delete", this.deleteMessage);
 
         // Presence
         safeEmit("presence.update", ({ id, presences }) => {
@@ -295,6 +333,20 @@ class InMemoryStore extends EventEmitter {
             });
         });
 
+        // Newsletters
+        safeEmit("newsletter.join", (update) => {
+            this.newsletterMetadata[update.id] = update;
+        });
+
+        // Labels
+        safeEmit("labels.edit", (edit) => {
+            this.labels[edit.label.id] = edit.label;
+        });
+
+        safeEmit("labels.association", (association) => {
+            this.chatLabels[association.chatJid] = association.labels;
+        });
+
         this.logger.info("All store events bound successfully");
     }
 
@@ -305,6 +357,13 @@ class InMemoryStore extends EventEmitter {
         this.saveToFile();
         this.logger.info("Store cleanup completed");
     }
+
+    /* ==================== HELPER METHODS ==================== */
+
+    isBroadcast(jid) { return isJidBroadcast(jid); }
+    isGroup(jid) { return isJidGroup(jid); }
+    isNewsletter(jid) { return isJidNewsletter(jid); }
+    isStatusBroadcast(jid) { return isJidStatusBroadcast(jid); }
 }
 
 function makeInMemoryStore(options = {}) {
