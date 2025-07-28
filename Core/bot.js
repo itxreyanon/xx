@@ -18,6 +18,8 @@ const MessageHandler = require('./message-handler');
 const { connectDb } = require('../utils/db');
 const ModuleLoader = require('./module-loader');
 const { useMongoAuthState } = require('../utils/mongoAuthState');
+const readline = require('readline');
+
 
 class HyperWaBot {
     constructor() {
@@ -67,113 +69,152 @@ class HyperWaBot {
         logger.info('✅ HyperWa Userbot initialized successfully!');
     }
 
-    async startWhatsApp() {
-        let state, saveCreds;
+async startWhatsApp() {
+    let state, saveCreds;
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
-        // Clean up existing socket if present
-        if (this.sock) {
-            logger.info('🧹 Cleaning up existing WhatsApp socket');
-            this.sock.ev.removeAllListeners();
-            await this.sock.end();
-            this.sock = null;
-        }
+    // Clean up existing socket if present
+    if (this.sock) {
+        logger.info('🧹 Cleaning up existing WhatsApp socket');
+        this.sock.ev.removeAllListeners();
+        await this.sock.end();
+        this.sock = null;
+    }
 
-        // Choose auth method based on configuration
-        if (this.useMongoAuth) {
-            logger.info('🔧 Using MongoDB auth state...');
-            try {
-                ({ state, saveCreds } = await useMongoAuthState());
-            } catch (error) {
-                logger.error('❌ Failed to initialize MongoDB auth state:', error);
-                logger.info('🔄 Falling back to file-based auth...');
-                ({ state, saveCreds } = await useMultiFileAuthState(this.authPath));
-            }
-        } else {
-            logger.info('🔧 Using file-based auth state...');
+    // Choose auth method based on configuration
+    if (this.useMongoAuth) {
+        logger.info('🔧 Using MongoDB auth state...');
+        try {
+            ({ state, saveCreds } = await useMongoAuthState());
+        } catch (error) {
+            logger.error('❌ Failed to initialize MongoDB auth state:', error);
+            logger.info('🔄 Falling back to file-based auth...');
             ({ state, saveCreds } = await useMultiFileAuthState(this.authPath));
         }
+    } else {
+        logger.info('🔧 Using file-based auth state...');
+        ({ state, saveCreds } = await useMultiFileAuthState(this.authPath));
+    }
 
-        const { version } = await fetchLatestBaileysVersion();
+    const { version } = await fetchLatestBaileysVersion();
 
-        try {
-            this.sock = makeWASocket({
-                auth: {
-                    creds: state.creds,
-                    keys: makeCacheableSignalKeyStore(state.keys, logger),
-                },
-                version,
-                printQRInTerminal: false, // We'll handle QR display ourselves
-                logger: logger.child({ module: 'baileys' }),
-                getMessage: async (key) => ({ conversation: 'Message not found' }),
-                browser: ['HyperWa', 'Chrome', '3.0'],
-                msgRetryCounterCache: this.msgRetryCounterCache,
-                generateHighQualityLinkPreview: true,
-            });
+    try {
+        this.sock = makeWASocket({
+            auth: {
+                creds: state.creds,
+                keys: makeCacheableSignalKeyStore(state.keys, logger),
+            },
+            version,
+            printQRInTerminal: false,
+            logger: logger.child({ module: 'baileys' }),
+            getMessage: async (key) => ({ conversation: 'Message not found' }),
+            browser: ['HyperWa', 'Chrome', '3.0'],
+            msgRetryCounterCache: this.msgRetryCounterCache,
+            generateHighQualityLinkPreview: true,
+        });
 
-            // Bind store to socket events
-            this.store.bind(this.sock.ev);
+        // Bind store to socket events
+        this.store.bind(this.sock.ev);
 
-            // Setup connection promise
-            const connectionPromise = new Promise((resolve, reject) => {
-                const connectionTimeout = setTimeout(() => {
-                    if (!this.sock.user) {
-                        logger.warn('❌ QR code scan timed out after 30 seconds');
-                        reject(new Error('QR code scan timed out'));
-                    }
-                }, 30000);
+        // Setup connection promise
+        const connectionPromise = new Promise(async (resolve, reject) => {
+            const connectionTimeout = setTimeout(() => {
+                if (!this.sock.user) {
+                    logger.warn('❌ Authentication timed out after 30 seconds');
+                    reject(new Error('Authentication timed out'));
+                }
+            }, 30000);
 
-                this.sock.ev.on('connection.update', update => {
-                    const { connection, qr } = update;
-                    
-                    // QR Code Handling
-                    if (qr && !this.qrCodeSent) {
+            this.sock.ev.on('connection.update', async (update) => {
+                const { connection, qr, lastDisconnect } = update;
+
+                // Handle QR Code
+                if (qr && config.get('auth.method') === 'qr') {
+                    if (!this.qrCodeSent) {
                         this.qrCodeSent = true;
                         logger.info('📱 WhatsApp QR code generated');
                         qrcode.generate(qr, { small: true });
-                        
-                        // Send to Telegram if available
+
                         if (this.telegramBridge) {
                             try {
-                                this.telegramBridge.sendQRCode(qr);
+                                await this.telegramBridge.sendQRCode(qr);
                             } catch (error) {
                                 logger.warn('⚠️ TelegramBridge failed to send QR:', error.message);
                             }
                         }
                     }
-                    
-                    // Connection Status
-                    if (connection === 'open') {
-                        clearTimeout(connectionTimeout);
-                        resolve();
-                    } else if (connection === 'close') {
-                        const lastDisconnect = update.lastDisconnect;
-                        const statusCode = lastDisconnect?.error?.output?.statusCode || 0;
-                        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                }
 
-                        if (shouldReconnect && !this.isShuttingDown) {
-                            logger.warn('🔄 Connection closed, reconnecting...');
-                            setTimeout(() => this.startWhatsApp(), 5000);
-                        } else {
-                            logger.error('❌ Connection closed permanently. Please restart.');
-                            process.exit(1);
+                // Handle Pairing Code
+                if (connection === 'connecting' && !this.sock.user && config.get('auth.method') === 'pairing') {
+                    if (!this.qrCodeSent) {
+                        this.qrCodeSent = true; // Prevent multiple attempts
+                        const phoneNumber = config.get('auth.pairing.phoneNumber');
+                        if (!phoneNumber) {
+                            logger.error('❌ No phone number provided for pairing code');
+                            return reject(new Error('Phone number missing for pairing'));
+                        }
+
+                        const confirm = await question(`👉 Start pairing with ${phoneNumber}? (y/N): `);
+                        if (confirm.toLowerCase() !== 'y') {
+                            logger.info('❌ Pairing canceled by user');
+                            return process.exit(1);
+                        }
+
+                        try {
+                            logger.info(`📞 Requesting pairing code for ${phoneNumber}...`);
+                            const code = await this.sock.requestPairingCode(phoneNumber);
+                            logger.info(`🔑 Pairing Code: ${code}`);
+                            if (this.telegramBridge) {
+                                await this.telegramBridge.sendText(`🔑 *Pairing Code*: \`\`\`${code}\`\`\``, { parseMode: 'Markdown' });
+                            }
+                        } catch (err) {
+                            logger.error('❌ Failed to request pairing code:', err.message);
+                            logger.info('🔄 Falling back to QR code...');
+                            config.set('auth.method', 'qr'); // fallback
+                            this.qrCodeSent = false; // reset so QR can show
                         }
                     }
-                });
+                }
+
+                // Connection Open
+                if (connection === 'open') {
+                    clearTimeout(connectionTimeout);
+                    rl.close(); // Close readline
+                    resolve();
+                }
+
+                // Connection Close
+                if (connection === 'close') {
+                    const statusCode = lastDisconnect?.error?.output?.statusCode || 0;
+                    const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                    if (shouldReconnect && !this.isShuttingDown) {
+                        logger.warn('🔄 Connection closed, reconnecting...');
+                        setTimeout(() => this.startWhatsApp(), 5000);
+                    } else {
+                        logger.error('❌ Connection closed permanently.');
+                        process.exit(1);
+                    }
+                }
             });
+        });
 
-            // Credential updates
-            this.sock.ev.on('creds.update', saveCreds);
-            
-            // Message handling
-            this.sock.ev.on('messages.upsert', this.messageHandler.handleMessages.bind(this.messageHandler));
+        // Save credentials when updated
+        this.sock.ev.on('creds.update', saveCreds);
 
-            await connectionPromise;
-            await this.onConnectionOpen();
-        } catch (error) {
-            logger.error('❌ Failed to initialize WhatsApp socket:', error);
-            setTimeout(() => this.startWhatsApp(), 5000);
-        }
+        // Message handling
+        this.sock.ev.on('messages.upsert', this.messageHandler.handleMessages.bind(this.messageHandler));
+
+        // Wait for connection
+        await connectionPromise;
+        await this.onConnectionOpen();
+
+    } catch (error) {
+        logger.error('❌ Failed to initialize WhatsApp socket:', error);
+        setTimeout(() => this.startWhatsApp(), 5000);
     }
+}
 
     async onConnectionOpen() {
         logger.info(`✅ Connected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`);
