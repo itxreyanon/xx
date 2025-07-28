@@ -140,33 +140,32 @@ async startWhatsApp() {
                         }
                     }
                 }
+if (connection === 'connecting' && !this.sock.user && config.get('auth.method') === 'pairing') {
+    if (!this.qrCodeSent) {
+        this.qrCodeSent = true;
 
-                // Auto-pairing with phone number from config
-                if (connection === 'connecting' && !this.sock.user && config.get('auth.method') === 'pairing') {
-                    if (!this.qrCodeSent) {
-                        this.qrCodeSent = true;
+        const phoneNumber = config.get('auth.phoneNumber');
+        if (!phoneNumber) {
+            logger.error('❌ No phone number provided for pairing code');
+            return reject(new Error('Phone number missing for pairing'));
+        }
 
-                        const phoneNumber = config.get('auth.phoneNumber');
-                        if (!phoneNumber) {
-                            logger.error('❌ No phone number provided for pairing code');
-                            return reject(new Error('Phone number missing for pairing'));
-                        }
+        try {
+            logger.info(`📞 Requesting pairing code for ${phoneNumber}...`);
+            const code = await this.sock.requestPairingCode(phoneNumber);
+            logger.info(`🔑 Pairing Code: ${code}`);
 
-                        try {
-                            logger.info(`📞 Requesting pairing code for ${phoneNumber}...`);
-                            const code = await this.sock.requestPairingCode(phoneNumber);
-                            logger.info(`🔑 Pairing Code: ${code}`);
-                            if (this.telegramBridge) {
-                                await this.telegramBridge.sendText(`🔑 *Pairing Code*: \`\`\`${code}\`\`\``, { parseMode: 'Markdown' });
-                            }
-                        } catch (err) {
-                            logger.error('❌ Failed to request pairing code:', err.message);
-                            logger.info('🔄 Falling back to QR code...');
-                            config.set('auth.method', 'qr');
-                            this.qrCodeSent = false;
-                        }
-                    }
-                }
+            if (this.telegramBridge) {
+                await this.telegramBridge.sendText(`🔑 *Pairing Code*: \`\`\`${code}\`\`\``, { parseMode: 'Markdown' });
+            }
+        } catch (err) {
+            logger.error('❌ Failed to request pairing code:', err); // log full error
+            logger.info('🔄 Falling back to QR code...');
+            config.set('auth.method', 'qr');
+            this.qrCodeSent = false;
+        }
+    }
+}
 
                 if (connection === 'open') {
                     clearTimeout(connectionTimeout);
