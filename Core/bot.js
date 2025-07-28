@@ -67,8 +67,6 @@ class HyperWaBot {
         logger.info('✅ HyperWa Userbot initialized successfully!');
     }
 
-const config = require('./config'); // adjust if needed
-const qrcode = require('qrcode-terminal');
 
 async startWhatsApp() {
     let state, saveCreds;
