@@ -146,13 +146,12 @@ class HyperWaBot {
         // Bind store to socket events
         this.store.bind(this.sock.ev);
 
-        // Pairing code support
-if (this.usePairingCode && !state.creds.registered) {
+if (this.usePairingCode) {
     this.sock.ev.on('connection.update', async (update) => {
         const { receivedPendingNotifications } = update;
 
-        // 🔑 This is the correct time to request pairing code
-        if (receivedPendingNotifications) {
+        // ✅ This is the correct time to request pairing code
+        if (receivedPendingNotifications && !this.sock.authState.creds.registered) {
             try {
                 const phoneNumber = await question('Please enter your WhatsApp number (e.g., +1234567890):\n');
                 if (!phoneNumber || !/^\+\d{10,15}$/.test(phoneNumber)) {
@@ -176,7 +175,6 @@ if (this.usePairingCode && !state.creds.registered) {
                 }
             } catch (err) {
                 logger.error('❌ Failed to get pairing code:', err);
-                // Retry connection
                 setTimeout(() => this.startWhatsApp(), 5000);
             }
         }
