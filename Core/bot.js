@@ -31,7 +31,20 @@ const { makeInMemoryStore } = require('./store')
 
 // Readline interface for pairing code
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
-const question = (text) => new Promise((resolve) => rl.question(text, resolve))
+const askQuestion = (text: string) => {
+	return new Promise<string>((resolve) => {
+		const rl = readline.createInterface({
+			input: process.stdin,
+			output: process.stdout
+		})
+
+		rl.question(text, (answer) => {
+			rl.close()
+			resolve(answer.trim())
+		})
+	})
+}
+
 
 class HyperWaBot {
     constructor() {
@@ -149,7 +162,8 @@ class HyperWaBot {
         // Pairing code support
 if (this.usePairingCode && !state.creds.registered) {
     try {
-        const phoneNumber = await question('📞 Enter WhatsApp number (e.g., +1234567890): ')
+        const phoneNumber = await askQuestion('📞 Enter WhatsApp number (e.g., +1234567890): ')
+
         const cleanedNumber = phoneNumber.trim()
 
         if (!/^\+\d{10,15}$/.test(cleanedNumber)) {
