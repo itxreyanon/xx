@@ -126,10 +126,33 @@ async handleCommand(msg, text) {
     const participant = msg.key.participant || sender;
     const prefix = config.get('bot.prefix');
 
-    const args = text.slice(prefix.length).trim().split(/\s+/);
-    const command = args[0].toLowerCase();
-    const params = args.slice(1);
+  //  const args = text.slice(prefix.length).trim().split(/\s+/);
+  //  const command = args[0].toLowerCase();
+  //  const params = args.slice(1);
+let rawText = text.toLowerCase();
+let command = null;
+let params = [];
+let handler = null;
 
+// Match by full key (emoji or alias)
+for (const [key, cmdHandler] of this.commandHandlers.entries()) {
+  if (rawText.startsWith(key)) {
+    command = key;
+    handler = cmdHandler;
+    params = rawText.slice(key.length).trim().split(/\s+/);
+    break;
+  }
+}
+
+// Fallback: classic prefix + command
+if (!handler) {
+  if (!rawText.startsWith(prefix)) return;
+  const sliced = rawText.slice(prefix.length).trim().split(/\s+/);
+  command = sliced[0].toLowerCase();
+  params = sliced.slice(1);
+  handler = this.commandHandlers.get(prefix + command);
+}
+/////////////////////////////////////////////////////////
 if (!this.checkPermissions(msg, command)) {
     if (config.get('features.sendPermissionError', false)) {
         return this.bot.sendMessage(sender, {
@@ -155,9 +178,12 @@ if (!this.checkPermissions(msg, command)) {
 
     if (handler) {
     // Always add ⏳ reaction for ALL commands
-    await this.bot.sock.sendMessage(sender, {
-        react: { key: msg.key, text: '⏳' }
-    });
+if (!handler?.silent) {
+  await this.bot.sock.sendMessage(sender, {
+    react: { key: msg.key, text: '⏳' }
+  });
+}
+
 
     try {
         await handler.execute(msg, params, {
