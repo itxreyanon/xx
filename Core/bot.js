@@ -147,7 +147,7 @@ class HyperWaBot {
                     const { connection, lastDisconnect } = update
                     
                     if (connection === 'close') {
-                        const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut
+                        const shouldReconnect = (lastDisconnect?.error instanceof Boom) ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut : true;
                         if (shouldReconnect && !this.isShuttingDown) {
                             logger.warn('🔄 Connection closed, reconnecting...')
                             setTimeout(() => this.startWhatsApp(), 5000)
