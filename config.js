@@ -6,29 +6,28 @@ class Config {
                 company: 'Dawium Technologies',
                 prefix: '.',
                 version: '2.0.0',
-                owner: '923075417411@s.whatsapp.net', // Include full JID
+                owner: '923075417411@s.whatsapp.net',
                 clearAuthOnStart: false
             },
 
             auth: {
-                useMongoAuth: false ,
+                method: 'pairing',              // 'pairing' or 'qr'
                 usePairingCode: true,
-                phoneNumber: 923075417411
+                phoneNumber: '923075417411'     // Just number (no + or @)
             },
 
             admins: [
-                '923075417411', // Just the number part, no "@s.whatsapp.net"
+                '923075417411',
                 '923334445555'
             ],
 
-            // Feature toggles and options
             features: {
-                mode: 'public',                   // 'public' or 'private'
-                customModules: true,              // Enable custom modules
-                rateLimiting: true,               // Enable rate limiting
-                telegramBridge: true,             // Sync with Telegram
-                respondToUnknownCommands: false, // Respond to unknown commands
-                sendPermissionError: false        // Send error for disallowed commands
+                mode: 'public',
+                customModules: true,
+                rateLimiting: true,
+                telegramBridge: true,
+                respondToUnknownCommands: false,
+                sendPermissionError: false
             },
 
             mongo: {
@@ -49,8 +48,8 @@ class Config {
                     callLogs: true,
                     statusSync: true,
                     biDirectional: true,
-                    welcomeMessage: false,         // Message on topic creation
-                    sendOutgoingMessages: false,   // Forward messages from this side
+                    welcomeMessage: false,
+                    sendOutgoingMessages: false,
                     presenceUpdates: true,
                     readReceipts: false,
                     animatedStickers: true
@@ -58,23 +57,15 @@ class Config {
             },
 
             help: {
-                // Default help style:
-                // 1 = Box style (╔══ module ══)
-                // 2 = Divider style (██▓▒░ module)
                 defaultStyle: 1,
-
-                // Default display mode for commands:
-                // "description" = show command descriptions
-                // "usage" = show usage string
-                // "none" = show only command names
                 defaultShow: 'description'
             },
 
             logging: {
-                level: 'info',        // Log level: info, warn, error, debug
-                saveToFile: true,     // Write logs to file
-                maxFileSize: '10MB',  // Max size per log file
-                maxFiles: 5           // Max number of rotated files
+                level: 'info',
+                saveToFile: true,
+                maxFileSize: '10MB',
+                maxFiles: 5
             }
         };
 
