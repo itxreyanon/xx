@@ -1,5 +1,6 @@
 const { HyperWaBot } = require('./Core/bot');
 const logger = require('./Core/logger');
+const { Boom } = require('@hapi/boom');
 const config = require('./config');
 global.crypto = require('crypto');
 
