@@ -97,7 +97,7 @@ class HyperWaBot {
         logger.info('✅ HyperWa Userbot initialized successfully!')
     }
 
-   async startWhatsApp() {
+async startWhatsApp() {
     let state, saveCreds;
 
     if (this.sock) {
@@ -118,7 +118,7 @@ class HyperWaBot {
                 ({ state, saveCreds } = await useMultiFileAuthState(this.authPath));
             } catch (fileAuthError) {
                 logger.error('❌ Failed to initialize file-based auth state:', fileAuthError.stack || fileAuthError);
-                throw fileAuthError; // Rethrow to be caught by the outer try-catch
+                throw fileAuthError;
             }
         }
     } else {
@@ -127,7 +127,7 @@ class HyperWaBot {
             ({ state, saveCreds } = await useMultiFileAuthState(this.authPath));
         } catch (fileAuthError) {
             logger.error('❌ Failed to initialize file-based auth state:', fileAuthError.stack || fileAuthError);
-            throw fileAuthError; // Rethrow to be caught by the outer try-catch
+            throw fileAuthError;
         }
     }
 
@@ -156,52 +156,52 @@ class HyperWaBot {
             printQRInTerminal: false
         });
 
-        // Bind store to socket events
         this.store.bind(this.sock.ev);
 
-        // Pairing code support
-// Pairing code support
-if (this.usePairingCode && !state.creds.registered) {
-    try {
-        const configuredNumber = config.get('auth.phoneNumber', '').trim();
 
-        if (!/^\+\d{10,15}$/.test(configuredNumber)) {
-            logger.error('❌ Invalid or missing phone number in config (auth.phoneNumber)');
-            process.exit(1);
-        }
-
-        logger.info(`📲 Requesting pairing code for ${configuredNumber}...`);
-        const code = await this.sock.requestPairingCode(configuredNumber);
-
-        console.log(`\n🔑 YOUR PAIRING CODE: ${code} 🔑\n`);
-        logger.info(`✅ Pairing code generated: ${code}`);
-
-        if (this.telegramBridge) {
-            try {
-                await this.telegramBridge.sendMessage(`🔑 Code: \`${code}\``, { parse_mode: 'Markdown' });
-            } catch (err) {
-                logger.warn('⚠️ Failed to send code to Telegram:', err.message);
-            }
-        }
-    } catch (err) {
-        logger.error('❌ Failed to request pairing code:', {
-            message: err.message,
-            stack: err.stack
-        });
-        setTimeout(() => this.startWhatsApp(), 5000);
-        return; // Prevent continuing if pairing failed
-    }
-}
-
-
-        // Process all events
+        // Event handlers
         this.sock.ev.process(async (events) => {
             logger.debug('Processing Baileys events:', Object.keys(events));
+
             // Connection updates
             if (events['connection.update']) {
                 const update = events['connection.update'];
-                const { connection, lastDisconnect } = update;
-                
+                const { connection, lastDisconnect, qr } = update;
+
+                    // Pairing code support
+        if (this.usePairingCode && !state.creds.registered) {
+            try {
+                const configuredNumber = config.get('auth.phoneNumber', '').trim();
+
+                if (!/^\+\d{10,15}$/.test(configuredNumber)) {
+                    logger.error('❌ Invalid or missing phone number in config (auth.phoneNumber)');
+                    process.exit(1);
+                }
+
+                logger.info(`📲 Requesting pairing code for ${configuredNumber}...`);
+                const code = await this.sock.requestPairingCode(configuredNumber);
+
+                console.log(`\n🔑 YOUR PAIRING CODE: ${code} 🔑\n`);
+                logger.info(`✅ Pairing code generated: ${code}`);
+
+                if (this.telegramBridge) {
+                    try {
+                        await this.telegramBridge.sendMessage(`🔑 Code: \`${code}\``, { parse_mode: 'Markdown' });
+                    } catch (err) {
+                        logger.warn('⚠️ Failed to send code to Telegram:', err.message);
+                    }
+                }
+            } catch (err) {
+                logger.error('❌ Failed to request pairing code:', {
+                    message: err.message,
+                    stack: err.stack
+                });
+                setTimeout(() => this.startWhatsApp(), 5000);
+                return;
+            }
+        }
+
+
                 if (connection === 'close') {
                     const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
 
@@ -233,15 +233,14 @@ if (this.usePairingCode && !state.creds.registered) {
 
             // History sync
             if (events['messaging-history.set']) {
-                const { chats, contacts, messages, isLatest, progress, syncType } = events['messaging-history.set'];
+                const { chats, contacts, messages, syncType } = events['messaging-history.set'];
                 logger.info(`History sync: ${chats.length} chats, ${contacts.length} contacts, ${messages.length} msgs`);
-                
                 if (syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
                     this.onDemandMap.set(messages[0].key.id, syncType);
                 }
             }
 
-            // Message updates (deletions, reactions, etc)
+            // Messages update (reactions, poll updates, etc.)
             if (events['messages.update']) {
                 for (const { key, update } of events['messages.update']) {
                     if (update.pollUpdates) {
@@ -262,7 +261,6 @@ if (this.usePairingCode && !state.creds.registered) {
                 logger.debug('Call event:', events.call);
             }
 
-            // Label events
             if (events['labels.association']) {
                 logger.debug('Label association:', events['labels.association']);
             }
@@ -271,12 +269,12 @@ if (this.usePairingCode && !state.creds.registered) {
                 logger.debug('Label edit:', events['labels.edit']);
             }
 
-            // Newsletter events
             if (events['newsletter.join']) {
                 logger.debug('Newsletter join:', events['newsletter.join']);
             }
         });
 
+        // Wait for connection open or timeout
         await new Promise((resolve, reject) => {
             const connectionTimeout = setTimeout(() => {
                 if (!this.sock.user) {
@@ -303,9 +301,10 @@ if (this.usePairingCode && !state.creds.registered) {
             name: error.name
         });
         setTimeout(() => this.startWhatsApp(), 5000);
-        throw error; // Rethrow to allow main.js to catch and log
+        throw error;
     }
 }
+
 
     async getMessage(key) {
         // Try to get message from store first
