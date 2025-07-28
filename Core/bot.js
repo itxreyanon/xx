@@ -1,626 +1,330 @@
-// bot.js (Updated with Configurable Pairing Logic)
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys'); // Added makeCacheableSignalKeyStore
-const qrcode = require('qrcode-terminal');
-const fs = require('fs-extra');
-const path = require('path');
-const config = require('../config');
-const logger = require('./logger');
-const MessageHandler = require('./message-handler');
-const { connectDb } = require('../utils/db');
-const ModuleLoader = require('./module-loader');
-const { useMongoAuthState } = require('../utils/mongoAuthState');
-const { makeInMemoryStore } = require('./store');
-// --- Added imports for pairing code ---
-const readline = require('readline');
+const { Boom } = require('@hapi/boom')
+const NodeCache = require('node-cache')
+const { 
+    makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    makeCacheableSignalKeyStore,
+    downloadAndProcessHistorySyncNotification,
+    getAggregateVotesInPollMessage,
+    isJidNewsletter,
+    encodeWAM,
+    BinaryInfo,
+    proto,
+    isJidBroadcast,
+    isJidGroup,
+    delay
+} = require('@whiskeysockets/baileys')
+const qrcode = require('qrcode-terminal')
+const fs = require('fs-extra')
+const path = require('path')
+const readline = require('readline')
 
-// --- Determine pairing mode ---
-// Priority: CLI flag > Config file > Default (QR)
-const cliUsePairingCode = process.argv.includes('--use-pairing-code');
-const configUsePairingCode = config.get('auth.usePairingCode', false); // Add this to your config
-const usePairingCode = cliUsePairingCode || configUsePairingCode;
-// --- Reply flag from example (optional) ---
-const doReplies = process.argv.includes('--do-reply');
+const config = require('../config')
+const logger = require('./logger')
+const MessageHandler = require('./message-handler')
+const { connectDb } = require('../utils/db')
+const ModuleLoader = require('./module-loader')
+const { useMongoAuthState } = require('../utils/mongoAuthState')
+const { makeInMemoryStore } = require('./store')
+
+// Readline interface for pairing code
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+const question = (text) => new Promise((resolve) => rl.question(text, resolve))
 
 class HyperWaBot {
     constructor() {
-        this.sock = null;
-        this.authPath = './auth_info';
-        this.messageHandler = new MessageHandler(this);
-        this.telegramBridge = null;
-        this.isShuttingDown = false;
-        this.db = null;
-        this.moduleLoader = new ModuleLoader(this);
-        this.qrCodeSent = false;
-        this.useMongoAuth = config.get('auth.useMongoAuth', false);
-        // Initialize store
-        this.store = makeInMemoryStore({
+        this.sock = null
+        this.authPath = './auth_info'
+        this.msgRetryCounterCache = new NodeCache()
+        this.onDemandMap = new Map()
+        this.store = makeInMemoryStore({ 
             logger: logger.child({ module: 'store' }),
-            filePath: './store.json',
-            autoSaveInterval: 30000 // Auto-save every 30 seconds
-        });
-        // Stability improvements
-        this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 10;
-        this.reconnectDelay = 5000;
-        this.connectionTimeout = null;
-        this.isConnecting = false;
-        this.messageQueue = [];
-        this.isProcessingMessages = false;
-        // Graceful shutdown handling
-        this.setupGracefulShutdown();
-        // Load existing store data
-        this.store.loadFromFile();
-    }
-
-    setupGracefulShutdown() {
-        const gracefulShutdown = async (signal) => {
-            logger.info(`🛑 Received ${signal}, initiating graceful shutdown...`);
-            await this.shutdown();
-            process.exit(0);
-        };
-        process.on('SIGINT', gracefulShutdown);
-        process.on('SIGTERM', gracefulShutdown);
-        process.on('SIGQUIT', gracefulShutdown);
-        // Handle uncaught exceptions
-        process.on('uncaughtException', (error) => {
-            logger.error('❌ Uncaught Exception:', error);
-            // Don't exit immediately, try to recover
-            setTimeout(() => {
-                if (!this.isShuttingDown) {
-                    this.handleConnectionError(error);
-                }
-            }, 1000);
-        });
-        process.on('unhandledRejection', (reason, promise) => {
-            logger.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-            // Don't exit, just log and continue
-        });
+            filePath: config.get('store.path', './data/store.json'),
+            maxMessagesPerChat: config.get('store.maxMessages', 1000)
+        })
+        this.messageHandler = new MessageHandler(this)
+        this.telegramBridge = null
+        this.isShuttingDown = false
+        this.db = null
+        this.moduleLoader = new ModuleLoader(this)
+        this.qrCodeSent = false
+        this.useMongoAuth = config.get('auth.useMongoAuth', false)
+        this.usePairingCode = config.get('auth.usePairingCode', false)
+        this.doReplies = config.get('features.doReplies', false)
     }
 
     async initialize() {
-        logger.info('🔧 Initializing HyperWa Userbot...');
-        try {
-            // Database connection with retry logic
-            await this.initializeDatabase();
-            // Initialize Telegram bridge if enabled
-            await this.initializeTelegramBridge();
-            // Load modules
-            await this.moduleLoader.loadModules();
-            // Start WhatsApp connection
-            await this.startWhatsApp();
-            logger.info('✅ HyperWa Userbot initialized successfully!');
-        } catch (error) {
-            logger.error('❌ Failed to initialize bot:', error);
-            throw error;
-        }
-    }
+        logger.info('🔧 Initializing HyperWa Userbot...')
 
-    async initializeDatabase() {
-        let retries = 3;
-        while (retries > 0) {
+        try {
+            this.db = await connectDb()
+            logger.info('✅ Database connected successfully!')
+        } catch (error) {
+            logger.error('❌ Failed to connect to database:', error)
+            process.exit(1)
+        }
+
+        if (config.get('telegram.enabled')) {
             try {
-                this.db = await connectDb();
-                logger.info('✅ Database connected successfully!');
-                return;
+                const TelegramBridge = require('../telegram/bridge')
+                this.telegramBridge = new TelegramBridge(this)
+                await this.telegramBridge.initialize()
+                logger.info('✅ Telegram bridge initialized')
             } catch (error) {
-                retries--;
-                logger.error(`❌ Database connection failed (${3 - retries}/3):`, error.message);
-                if (retries === 0) {
-                    throw new Error('Failed to connect to database after 3 attempts');
-                }
-                await this.sleep(2000);
+                logger.warn('⚠️ Telegram bridge failed to initialize:', error.message)
+                this.telegramBridge = null
             }
         }
-    }
 
-    async initializeTelegramBridge() {
-        if (!config.get('telegram.enabled')) return;
-        try {
-            const TelegramBridge = require('../watg-bridge/bridge');
-            this.telegramBridge = new TelegramBridge(this);
-            await this.telegramBridge.initialize();
-            logger.info('✅ Telegram bridge initialized');
-            try {
-                await this.telegramBridge.sendStartMessage();
-            } catch (err) {
-                logger.warn('⚠️ Failed to send start message via Telegram:', err.message);
-            }
-        } catch (error) {
-            logger.warn('⚠️ Telegram bridge failed to initialize:', error.message);
-            this.telegramBridge = null;
-        }
+        await this.moduleLoader.loadModules()
+        await this.startWhatsApp()
+
+        logger.info('✅ HyperWa Userbot initialized successfully!')
     }
 
     async startWhatsApp() {
-        if (this.isConnecting) {
-            logger.warn('⚠️ Already attempting to connect, skipping...');
-            return;
-        }
-        this.isConnecting = true;
-        try {
-            await this.cleanupExistingConnection();
-            await this.initializeAuthState();
-            await this.createSocket();
-            await this.waitForConnection();
-            this.reconnectAttempts = 0; // Reset on successful connection
-            this.isConnecting = false;
-        } catch (error) {
-            this.isConnecting = false;
-            await this.handleConnectionError(error);
-        }
-    }
+        let state, saveCreds
 
-    async cleanupExistingConnection() {
         if (this.sock) {
-            logger.info('🧹 Cleaning up existing WhatsApp socket');
-            try {
-                // Remove all listeners to prevent memory leaks
-                this.sock.ev.removeAllListeners();
-                // Clear any existing timeout
-                if (this.connectionTimeout) {
-                    clearTimeout(this.connectionTimeout);
-                    this.connectionTimeout = null;
-                }
-                // Close socket gracefully
-                await this.sock.end();
-            } catch (error) {
-                logger.warn('⚠️ Error during socket cleanup:', error.message);
-            } finally {
-                this.sock = null;
-            }
+            logger.info('🧹 Cleaning up existing WhatsApp socket')
+            this.sock.ev.removeAllListeners()
+            await this.sock.end()
+            this.sock = null
         }
-    }
 
-    async initializeAuthState() {
-        let state, saveCreds;
         if (this.useMongoAuth) {
-            logger.info('🔧 Using MongoDB auth state...');
+            logger.info('🔧 Using MongoDB auth state...')
             try {
-                ({ state, saveCreds } = await useMongoAuthState());
+                ({ state, saveCreds } = await useMongoAuthState())
             } catch (error) {
-                logger.error('❌ Failed to initialize MongoDB auth state:', error);
-                logger.info('🔄 Falling back to file-based auth...');
-                ({ state, saveCreds } = await useMultiFileAuthState(this.authPath));
+                logger.error('❌ Failed to initialize MongoDB auth state:', error)
+                logger.info('🔄 Falling back to file-based auth...')
+                ({ state, saveCreds } = await useMultiFileAuthState(this.authPath))
             }
         } else {
-            logger.info('🔧 Using file-based auth state...');
-            ({ state, saveCreds } = await useMultiFileAuthState(this.authPath));
-        }
-        this.authState = { state, saveCreds };
-    }
-
-    async createSocket() {
-        const { version } = await fetchLatestBaileysVersion();
-        this.sock = makeWASocket({
-            version,
-            logger: logger.child({ module: 'baileys' }),
-            // --- Updated auth state to match example ---
-            auth: {
-                creds: this.authState.state.creds,
-                /** caching makes the store faster to send/recv messages */
-                keys: makeCacheableSignalKeyStore(this.authState.state.keys, logger.child({ module: 'baileys-keys' })), // Added from example
-            },
-            printQRInTerminal: false, // We handle QR manually
-            // --- Updated getMessage function (kept mostly original, simplified fallback) ---
-            getMessage: async (key) => {
-                // Try to get message from store first
-                try {
-                    const message = this.store.loadMessage(key.remoteJid, key.id);
-                    if (message) {
-                        return message.message || { conversation: 'Message found but content unavailable' };
-                    }
-                    // Simplified fallback like example
-                    return { conversation: 'Message not found in store' };
-                } catch (error) {
-                    logger.warn('Error retrieving message from store in getMessage:', error);
-                    // Simplified fallback like example
-                    return { conversation: 'Error retrieving message' };
-                }
-            },
-            browser: ['HyperWa', 'Chrome', '3.0'],
-            // Add connection options for stability
-            connectTimeoutMs: 60000,
-            defaultQueryTimeoutMs: 60000,
-            keepAliveIntervalMs: 30000,
-            // Enable message retry
-            retryRequestDelayMs: 250,
-            maxMsgRetryCount: 5,
-            // --- Added from example for potential features ---
-            generateHighQualityLinkPreview: true,
-        });
-
-        // Bind store to socket events
-        this.store.bind(this.sock.ev);
-
-        // --- Pairing Code Logic Setup ---
-        // The actual request will happen in handleConnectionUpdate when connection is 'connecting'
-        // and the session is not registered.
-        if (usePairingCode) {
-             logger.info('📱 Pairing code mode enabled (via CLI flag or config). Will request after connection starts if needed.');
-        } else {
-             logger.info('📱 QR code mode enabled (default or via config/CLI).');
+            logger.info('🔧 Using file-based auth state...')
+            ({ state, saveCreds } = await useMultiFileAuthState(this.authPath))
         }
 
-        this.setupEventHandlers();
-    }
+        const { version } = await fetchLatestBaileysVersion()
 
-    async waitForConnection() {
-        return new Promise((resolve, reject) => {
-            this.connectionTimeout = setTimeout(() => {
-                if (!this.sock?.user) {
-                    logger.warn('❌ Connection timed out after 60 seconds');
-                    reject(new Error('Connection timeout'));
-                }
-            }, 60000);
-            const connectionHandler = (update) => {
-                if (update.connection === 'open') {
-                    if (this.connectionTimeout) {
-                        clearTimeout(this.connectionTimeout);
-                        this.connectionTimeout = null;
-                    }
-                    this.sock.ev.off('connection.update', connectionHandler);
-                    resolve();
-                }
-            };
-            this.sock.ev.on('connection.update', connectionHandler);
-        });
-    }
-
-    setupEventHandlers() {
-        // Connection update handler with better error handling
-        this.sock.ev.on('connection.update', async (update) => {
-            try {
-                await this.handleConnectionUpdate(update);
-            } catch (error) {
-                logger.error('❌ Error in connection update handler:', error);
-            }
-        });
-        // Credentials update handler with error handling
-        this.sock.ev.on('creds.update', async () => {
-            try {
-                await this.authState.saveCreds();
-            } catch (error) {
-                logger.error('❌ Error saving credentials:', error);
-            }
-        });
-        // Message handler with queue system
-        this.sock.ev.on('messages.upsert', async (messageUpdate) => {
-            try {
-                // Add messages to queue for processing
-                this.messageQueue.push(messageUpdate);
-                await this.processMessageQueue();
-            } catch (error) {
-                logger.error('❌ Error handling message upsert:', error);
-            }
-        });
-        // Add other event handlers with error wrapping
-        this.sock.ev.on('messages.update', async (updates) => {
-            try {
-                // Handle message updates (read receipts, etc.)
-                logger.debug('📝 Message updates received:', updates.length);
-            } catch (error) {
-                logger.error('❌ Error handling message updates:', error);
-            }
-        });
-        this.sock.ev.on('presence.update', async (update) => {
-            try {
-                // Handle presence updates
-                logger.debug('👤 Presence update:', update.id);
-            } catch (error) {
-                logger.error('❌ Error handling presence update:', error);
-            }
-        });
-    }
-
-    async processMessageQueue() {
-        if (this.isProcessingMessages || this.messageQueue.length === 0) {
-            return;
-        }
-        this.isProcessingMessages = true;
         try {
-            while (this.messageQueue.length > 0) {
-                const messageUpdate = this.messageQueue.shift();
-                await this.messageHandler.handleMessages(messageUpdate);
-                // Small delay to prevent overwhelming the system
-                await this.sleep(10);
+            this.sock = makeWASocket({
+                version,
+                auth: {
+                    creds: state.creds,
+                    keys: makeCacheableSignalKeyStore(state.keys, logger),
+                },
+                msgRetryCounterCache: this.msgRetryCounterCache,
+                generateHighQualityLinkPreview: true,
+                logger: logger.child({ module: 'baileys' }),
+                getMessage: this.getMessage.bind(this),
+                browser: ['HyperWa', 'Chrome', '3.0'],
+                shouldSyncHistoryMessage: () => true,
+                printQRInTerminal: false
+            })
+
+            // Bind store to socket events
+            this.store.bind(this.sock.ev)
+
+            // Pairing code support
+            if (this.usePairingCode && !this.sock.authState.creds.registered) {
+                const phoneNumber = await question('Please enter your phone number:\n')
+                const code = await this.sock.requestPairingCode(phoneNumber)
+                logger.info(`Pairing code: ${code}`)
+                if (this.telegramBridge) {
+                    await this.telegramBridge.sendMessage(`Your pairing code: ${code}`)
+                }
             }
-        } catch (error) {
-            logger.error('❌ Error processing message queue:', error);
-        } finally {
-            this.isProcessingMessages = false;
-        }
-    }
 
-
-    // Inside handleConnectionUpdate method:
-    async handleConnectionUpdate(update) {
-        const { connection, lastDisconnect, qr } = update;
-
-        // --- Improved Pairing Code Logic ---
-        // Request pairing code when:
-        // 1. Pairing mode is enabled (usePairingCode is true)
-        // 2. Connection state is 'connecting'
-        // 3. We don't have a user yet (not logged in)
-        // 4. We haven't already requested/sent a QR for this attempt
-        if (usePairingCode && connection === 'connecting' && !this.sock?.user && !this.qrCodeSent) {
-            logger.info('🔐 Preparing to request pairing code...');
-            // Check auth state more directly
-            const isRegistered = this.sock?.authState?.creds?.registered;
-            // Only proceed if we are definitely NOT registered/logged in
-            // undefined or false means we need to log in
-            if (!isRegistered) {
-                logger.info('🔐 Requesting pairing code...');
-                const question = (text) => new Promise((resolve) => {
-                    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-                    rl.question(text, (answer) => {
-                        rl.close();
-                        resolve(answer.trim());
-                    });
-                });
-
-                try {
-                    let phoneNumber = await question('Please enter your phone number (with country code, e.g., 1234567890):\n');
-                    phoneNumber = phoneNumber.replace(/\D/g, ''); // Sanitize
-                    if (!phoneNumber) {
-                        throw new Error("Invalid phone number entered.");
+            // Process all events
+            this.sock.ev.process(async (events) => {
+                // Connection updates
+                if (events['connection.update']) {
+                    const update = events['connection.update']
+                    const { connection, lastDisconnect } = update
+                    
+                    if (connection === 'close') {
+                        const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut
+                        if (shouldReconnect && !this.isShuttingDown) {
+                            logger.warn('🔄 Connection closed, reconnecting...')
+                            setTimeout(() => this.startWhatsApp(), 5000)
+                        }
+                    } else if (connection === 'open') {
+                        await this.onConnectionOpen()
                     }
-                    // Ensure sock is available and method exists (it should be at this point)
-                    if (this.sock && typeof this.sock.requestPairingCode === 'function') {
-                        const code = await this.sock.requestPairingCode(phoneNumber);
-                        logger.info(`📱 Pairing code requested for ${phoneNumber}: ${code}`);
-                        if (this.telegramBridge) {
-                            try {
-                                await this.telegramBridge.logToTelegram('📱 Pairing Code', `Your pairing code for ${phoneNumber} is: \`${code}\``);
-                            } catch (err) {
-                                logger.warn('⚠️ Failed to send pairing code via Telegram:', err.message);
+                }
+
+                // Credentials update
+                if (events['creds.update']) {
+                    await saveCreds()
+                }
+
+                // History sync
+                if (events['messaging-history.set']) {
+                    const { chats, contacts, messages, isLatest, progress, syncType } = events['messaging-history.set']
+                    logger.info(`History sync: ${chats.length} chats, ${contacts.length} contacts, ${messages.length} msgs`)
+                    
+                    if (syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
+                        this.onDemandMap.set(messages[0].key.id, syncType)
+                    }
+                }
+
+                // Message updates (deletions, reactions, etc)
+                if (events['messages.update']) {
+                    for (const { key, update } of events['messages.update']) {
+                        if (update.pollUpdates) {
+                            const pollCreation = await this.getMessage(key)
+                            if (pollCreation) {
+                                const votes = getAggregateVotesInPollMessage({
+                                    message: pollCreation,
+                                    pollUpdates: update.pollUpdates,
+                                })
+                                logger.debug('Poll votes updated:', votes)
                             }
                         }
-                        // Crucially, mark that we've handled the login initiation for this session
-                        this.qrCodeSent = true;
-                    } else {
-                       logger.error("❌ Socket or requestPairingCode method not available when trying to request code.");
                     }
-                } catch (err) {
-                    logger.error('❌ Error requesting pairing code:', err.message || err);
-                    // Consider if we should fallback to QR or just let it fail
                 }
-            } else {
-                logger.debug("🔐 Session appears to be registered, skipping pairing code request.");
-            }
-        }
-        // --- End Pairing Code Logic ---
 
-        // --- QR Code Logic (conditional) ---
-        if (qr && !usePairingCode) { // Only show QR if NOT using pairing code
-            logger.info('📱 WhatsApp QR code generated');
-            qrcode.generate(qr, { small: true });
-            if (this.telegramBridge) {
-                try {
-                    await this.telegramBridge.sendQRCode(qr);
-                } catch (error) {
-                    logger.warn('⚠️ TelegramBridge failed to send QR:', error.message);
+                // Call events
+                if (events.call) {
+                    logger.debug('Call event:', events.call)
                 }
-            }
-            this.qrCodeSent = true; // Mark QR as sent
-        }
-        // --- End QR Code Logic ---
 
-        if (connection === 'close') {
-            // Reset the flag on connection close to allow new pairing/QR on reconnect
-            this.qrCodeSent = false;
-            await this.handleConnectionClose(lastDisconnect);
-        } else if (connection === 'open') {
-            // Reset the flag on successful connection
-            this.qrCodeSent = false;
-            await this.onConnectionOpen();
-        } else if (connection === 'connecting') {
-            logger.info('🔄 Connecting to WhatsApp...');
-            // Reset the flag at the start of a new connection attempt IF needed,
-            // but the pairing code logic above handles setting it.
-            // this.qrCodeSent = false; // Not resetting here avoids race conditions
-        }
-    }
-    async handleConnectionClose(lastDisconnect) {
-        const statusCode = lastDisconnect?.error?.output?.statusCode || 0;
-        const errorMessage = lastDisconnect?.error?.message || 'Unknown error';
-        logger.warn(`🔌 Connection closed. Status: ${statusCode}, Error: ${errorMessage}`);
-        // Handle different disconnect reasons
-        switch (statusCode) {
-            case DisconnectReason.loggedOut:
-                logger.error('❌ Device logged out. Please delete auth_info and restart.');
-                await this.clearAuthState();
-                process.exit(1);
-                break;
-            case DisconnectReason.deviceLoggedOut:
-                logger.error('❌ Device logged out from another location.');
-                await this.clearAuthState();
-                process.exit(1);
-                break;
-            case DisconnectReason.connectionClosed:
-            case DisconnectReason.connectionLost:
-            case DisconnectReason.connectionReplaced:
-            case DisconnectReason.timedOut:
-                if (!this.isShuttingDown) {
-                    await this.scheduleReconnect();
+                // Label events
+                if (events['labels.association']) {
+                    logger.debug('Label association:', events['labels.association'])
                 }
-                break;
-            case DisconnectReason.restartRequired:
-                logger.info('🔄 Restart required, restarting...');
-                if (!this.isShuttingDown) {
-                    await this.scheduleReconnect();
+
+                if (events['labels.edit']) {
+                    logger.debug('Label edit:', events['labels.edit'])
                 }
-                break;
-            default:
-                if (!this.isShuttingDown) {
-                    await this.scheduleReconnect();
+
+                // Newsletter events
+                if (events['newsletter.join']) {
+                    logger.debug('Newsletter join:', events['newsletter.join'])
                 }
+            })
+
+            await new Promise((resolve, reject) => {
+                const connectionTimeout = setTimeout(() => {
+                    if (!this.sock.user) {
+                        logger.warn('❌ QR code scan timed out after 30 seconds')
+                        reject(new Error('QR code scan timed out'))
+                    }
+                }, 30000)
+
+                this.sock.ev.on('connection.update', update => {
+                    if (update.connection === 'open') {
+                        clearTimeout(connectionTimeout)
+                        resolve()
+                    }
+                })
+            })
+
+        } catch (error) {
+            logger.error('❌ Failed to initialize WhatsApp socket:', error)
+            setTimeout(() => this.startWhatsApp(), 5000)
         }
     }
 
-    async scheduleReconnect() {
-        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            logger.error(`❌ Max reconnection attempts (${this.maxReconnectAttempts}) reached. Exiting.`);
-            process.exit(1);
-        }
-        this.reconnectAttempts++;
-        const delay = Math.min(this.reconnectDelay * this.reconnectAttempts, 30000); // Max 30 seconds
-        logger.warn(`🔄 Scheduling reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
-        setTimeout(async () => {
-            if (!this.isShuttingDown) {
-                try {
-                    await this.startWhatsApp();
-                } catch (error) {
-                    logger.error('❌ Reconnection failed:', error);
-                }
-            }
-        }, delay);
+    async getMessage(key) {
+        // Try to get message from store first
+        const message = this.store.loadMessage(key.remoteJid, key.id)
+        if (message) return message
+
+        // Fallback to default behavior
+        return { conversation: 'Message not found' }
     }
 
-    async handleConnectionError(error) {
-        logger.error('❌ Connection error:', error);
-        if (!this.isShuttingDown) {
-            await this.scheduleReconnect();
-        }
-    }
+    async sendMessageWTyping(jid, content) {
+        await this.sock.presenceSubscribe(jid)
+        await delay(500)
 
-    async clearAuthState() {
-        if (this.useMongoAuth) {
-            try {
-                const db = await connectDb();
-                const coll = db.collection("auth");
-                await coll.deleteOne({ _id: "session" });
-                logger.info('🗑️ MongoDB auth session cleared');
-            } catch (error) {
-                logger.error('❌ Failed to clear MongoDB auth session:', error);
-            }
-        } else {
-            try {
-                await fs.remove(this.authPath);
-                logger.info('🗑️ File-based auth session cleared');
-            } catch (error) {
-                logger.error('❌ Failed to clear file-based auth session:', error);
-            }
-        }
+        await this.sock.sendPresenceUpdate('composing', jid)
+        await delay(2000)
+
+        await this.sock.sendPresenceUpdate('paused', jid)
+
+        return this.sock.sendMessage(jid, content)
     }
 
     async onConnectionOpen() {
-        logger.info(`✅ Connected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`);
-        // Save store after successful connection
-        this.store.saveToFile();
+        logger.info(`✅ Connected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`)
+
         if (!config.get('bot.owner') && this.sock.user) {
-            config.set('bot.owner', this.sock.user.id);
-            logger.info(`👑 Owner set to: ${this.sock.user.id}`);
+            config.set('bot.owner', this.sock.user.id)
+            logger.info(`👑 Owner set to: ${this.sock.user.id}`)
         }
+
         if (this.telegramBridge) {
             try {
-                await this.telegramBridge.setupWhatsAppHandlers();
+                await this.telegramBridge.setupWhatsAppHandlers()
+                await this.telegramBridge.syncWhatsAppConnection()
             } catch (err) {
-                logger.warn('⚠️ Failed to setup Telegram WhatsApp handlers:', err.message);
+                logger.warn('⚠️ Telegram setup error:', err.message)
             }
         }
-        await this.sendStartupMessage();
-        if (this.telegramBridge) {
-            try {
-                await this.telegramBridge.syncWhatsAppConnection();
-            } catch (err) {
-                logger.warn('⚠️ Telegram sync error:', err.message);
-            }
-        }
+
+        await this.sendStartupMessage()
     }
 
     async sendStartupMessage() {
-        const owner = config.get('bot.owner');
-        if (!owner) return;
-        const authMethod = this.useMongoAuth ? 'MongoDB' : 'File-based';
-        const startupMessage = `🚀 *${config.get('bot.name')} v${config.get('bot.version')}* is now online!\n` +
-                              `🔥 *HyperWa Features Active:*\n` +
-                              `• 📱 Modular Architecture\n` +
-                              `• 🔐 Auth Method: ${authMethod}\n` +
-                              `• 🔐 Login Mode: ${usePairingCode ? '🔢 Pairing Code' : '📱 QR Code'}\n` + // Added login mode info
-                              `• 🤖 Telegram Bridge: ${config.get('telegram.enabled') ? '✅' : '❌'}\n` +
-                              `• 🔧 Custom Modules: ${config.get('features.customModules') ? '✅' : '❌'}\n` +
-                              `Type *${config.get('bot.prefix')}help* for available commands!`;
+        const owner = config.get('bot.owner')
+        if (!owner) return
+
+        const startupMessage = `🚀 *${config.get('bot.name')} v${config.get('bot.version')}* is now online!\n\n` +
+                              `📊 *Store Stats:*\n` +
+                              `• Chats: ${Object.keys(this.store.chats).length}\n` +
+                              `• Contacts: ${Object.keys(this.store.contacts).length}\n` +
+                              `• Messages: ${Object.keys(this.store.messageIndex.byId).length}\n\n` +
+                              `Type *${config.get('bot.prefix')}help* for commands`
+
         try {
-            await this.sendMessage(owner, { text: startupMessage });
+            await this.sock.sendMessage(owner, { text: startupMessage })
         } catch (error) {
-            logger.warn('⚠️ Failed to send startup message:', error.message);
-        }
-        if (this.telegramBridge) {
-            try {
-                await this.telegramBridge.logToTelegram('🚀 HyperWa Bot Started', startupMessage);
-            } catch (err) {
-                logger.warn('⚠️ Telegram log failed:', err.message);
-            }
+            logger.warn('Failed to send startup message:', error)
         }
     }
 
     async connect() {
         if (!this.sock) {
-            await this.startWhatsApp();
+            await this.startWhatsApp()
         }
-        return this.sock;
+        return this.sock
     }
 
     async sendMessage(jid, content) {
         if (!this.sock) {
-            throw new Error('WhatsApp socket not initialized');
+            throw new Error('WhatsApp socket not initialized')
         }
-        try {
-            return await this.sock.sendMessage(jid, content);
-        } catch (error) {
-            logger.error('❌ Failed to send message:', error);
-            throw error;
-        }
+        return await this.sock.sendMessage(jid, content)
     }
 
     async shutdown() {
-        logger.info('🛑 Shutting down HyperWa Userbot...');
-        this.isShuttingDown = true;
-        // Clear any pending timeouts
-        if (this.connectionTimeout) {
-            clearTimeout(this.connectionTimeout);
-            this.connectionTimeout = null;
-        }
-        // Shutdown Telegram bridge
+        logger.info('🛑 Shutting down HyperWa Userbot...')
+        this.isShuttingDown = true
+
         if (this.telegramBridge) {
             try {
-                await this.telegramBridge.shutdown();
+                await this.telegramBridge.shutdown()
             } catch (err) {
-                logger.warn('⚠️ Telegram shutdown error:', err.message);
+                logger.warn('⚠️ Telegram shutdown error:', err.message)
             }
         }
-        // Close WhatsApp socket
-        if (this.sock) {
-            try {
-                this.sock.ev.removeAllListeners();
-                await this.sock.end();
-            } catch (error) {
-                logger.warn('⚠️ Error during socket shutdown:', error.message);
-            }
-        }
-        // Close database connection
-        if (this.db) {
-            try {
-                await this.db.close();
-            } catch (error) {
-                logger.warn('⚠️ Error closing database:', error.message);
-            }
-        }
-        // Cleanup store
-        if (this.store) {
-            try {
-                this.store.cleanup();
-            } catch (error) {
-                logger.warn('⚠️ Error during store cleanup:', error.message);
-            }
-        }
-        logger.info('✅ HyperWa Userbot shutdown complete');
-    }
 
-    // Utility function for delays
-    sleep(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
+        if (this.sock) {
+            await this.sock.end()
+        }
+
+        // Cleanup store
+        this.store.cleanup()
+
+        logger.info('✅ HyperWa Userbot shutdown complete')
+        process.exit(0)
     }
 }
 
-module.exports = { HyperWaBot };
+module.exports = { HyperWaBot }
