@@ -12,7 +12,8 @@ class Config {
 
             auth: {
                 useMongoAuth: false ,
-                usePairingCode: true
+                usePairingCode: true,
+                "phoneNumber": "+923075417411"
             },
 
             admins: [
