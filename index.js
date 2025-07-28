@@ -1,6 +1,5 @@
 const { HyperWaBot } = require('./Core/bot');
 const logger = require('./Core/logger');
-const { Boom } = require('@hapi/boom');
 const config = require('./config');
 global.crypto = require('crypto');
 
@@ -26,22 +25,15 @@ async function main() {
             process.exit(0);
         });
 
-process.on('uncaughtException', (error) => {
-    logger.error('💥 Uncaught Exception:', error);
-    if (error instanceof Boom) {
-        logger.error('Boom error details:', error.output);
-    }
-    process.exit(1);
-});
+        process.on('uncaughtException', (error) => {
+            logger.error('💥 Uncaught Exception:', error);
+            process.exit(1);
+        });
 
-process.on('unhandledRejection', (reason, promise) => {
-    logger.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
-    if (reason instanceof Boom) {
-        logger.error('Boom rejection details:', reason.output);
-    }
-    process.exit(1);
-});
-
+        process.on('unhandledRejection', (reason, promise) => {
+            logger.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+            process.exit(1);
+        });
 
     } catch (error) {
         logger.error('💥 Failed to start HyperWa Userbot:', error);
