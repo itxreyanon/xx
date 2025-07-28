@@ -84,7 +84,7 @@ class HyperWaBot {
         logger.info('✅ HyperWa Userbot initialized successfully!')
     }
 
- async startWhatsApp() {
+async startWhatsApp() {
     let state, saveCreds;
     if (this.sock) {
         logger.info('🧹 Cleaning up existing WhatsApp socket');
@@ -137,42 +137,42 @@ class HyperWaBot {
     this.store.bind(this.sock.ev);
 
     // -------------------------------
-    // ✅ CORRECT PAIRING CODE LOGIC
+    // ✅ CORRECT: WAIT FOR READY EVENT
     // -------------------------------
     if (this.usePairingCode && !state.creds.registered) {
+        const promptForNumber = async () => {
+            try {
+                const phoneNumber = await question('📞 Enter your WhatsApp number (e.g., +1234567890):\n');
+                if (!phoneNumber || !/^\+\d{10,15}$/.test(phoneNumber)) {
+                    logger.error('❌ Invalid phone number. Use international format.');
+                    return this.sock.end();
+                }
+
+                logger.info(`📲 Requesting pairing code for: ${phoneNumber}`);
+                const code = await this.sock.requestPairingCode(phoneNumber);
+                logger.info(`✅ Pairing Code: ${code}`);
+                console.log(`\n🟩 YOUR PAIRING CODE: ${code}\n`);
+
+                if (this.telegramBridge) {
+                    try {
+                        await this.telegramBridge.sendMessage(`📲 Your pairing code: \`${code}\``, { parse_mode: 'Markdown' });
+                    } catch (err) {
+                        logger.warn('⚠️ Failed to send code to Telegram:', err.message);
+                    }
+                }
+            } catch (err) {
+                logger.error('❌ Failed to get pairing code:', err);
+                setTimeout(() => this.startWhatsApp(), 5000);
+            }
+        };
+
+        // 🔑 Wait for the correct event
         this.sock.ev.on('connection.update', async (update) => {
             const { receivedPendingNotifications } = update;
 
-            // 🔑 This is the ONLY correct time to request pairing code
             if (receivedPendingNotifications) {
-                try {
-                    const phoneNumber = await question('Please enter your WhatsApp number (e.g., +1234567890):\n');
-                    if (!phoneNumber || !/^\+\d{10,15}$/.test(phoneNumber)) {
-                        logger.error('❌ Invalid phone number format. Use international format like +1234567890');
-                        return this.sock.end();
-                    }
-
-                    logger.info(`📲 Requesting pairing code for: ${phoneNumber}`);
-                    const code = await this.sock.requestPairingCode(phoneNumber);
-                    logger.info(`✅ Pairing Code: ${code}`);
-                    console.log(`\n🟩 YOUR PAIRING CODE: ${code}\n`); // Make it obvious
-
-                    if (this.telegramBridge) {
-                        try {
-                            await this.telegramBridge.sendMessage(`📲 Your WhatsApp pairing code: \`${code}\``, { parse_mode: 'Markdown' });
-                            logger.info('📩 Pairing code sent to Telegram');
-                        } catch (err) {
-                            logger.warn('⚠️ Failed to send code to Telegram:', err.message);
-                        }
-                    }
-                } catch (err) {
-                    logger.error('❌ Failed to request pairing code:', {
-                        message: err.message,
-                        stack: err.stack,
-                        name: err.name
-                    });
-                    setTimeout(() => this.startWhatsApp(), 5000);
-                }
+                logger.info('✅ Socket ready for pairing code request');
+                await promptForNumber();
             }
         });
     }
@@ -181,8 +181,6 @@ class HyperWaBot {
     // EVENT PROCESSING
     // -------------------------------
     this.sock.ev.process(async (events) => {
-        logger.debug('Processing Baileys events:', Object.keys(events));
-
         if (events['connection.update']) {
             const update = events['connection.update'];
             const { connection, lastDisconnect } = update;
@@ -190,16 +188,10 @@ class HyperWaBot {
             if (connection === 'close') {
                 const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
                 if (shouldReconnect && !this.isShuttingDown) {
-                    logger.warn('🔄 Connection closed, reconnecting...', {
-                        statusCode: lastDisconnect?.error?.output?.statusCode,
-                        error: lastDisconnect?.error?.message
-                    });
+                    logger.warn('🔄 Connection closed, reconnecting...');
                     setTimeout(() => this.startWhatsApp(), 5000);
                 } else {
-                    logger.error('❌ Connection closed without reconnect:', {
-                        statusCode: lastDisconnect?.error?.output?.statusCode,
-                        error: lastDisconnect?.error?.message
-                    });
+                    logger.error('❌ Connection closed permanently');
                 }
             } else if (connection === 'open') {
                 await this.onConnectionOpen();
@@ -207,80 +199,33 @@ class HyperWaBot {
         }
 
         if (events['creds.update']) {
-            try {
-                await saveCreds();
-            } catch (saveCredsError) {
-                logger.error('❌ Failed to save credentials:', saveCredsError.stack || saveCredsError);
-            }
-        }
-
-        if (events['messaging-history.set']) {
-            const { chats, contacts, messages, isLatest, progress, syncType } = events['messaging-history.set'];
-            logger.info(`History sync: ${chats.length} chats, ${contacts.length} contacts, ${messages.length} msgs`);
-            if (syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
-                this.onDemandMap.set(messages[0].key.id, syncType);
-            }
-        }
-
-        if (events['messages.update']) {
-            for (const { key, update } of events['messages.update']) {
-                if (update.pollUpdates) {
-                    const pollCreation = await this.getMessage(key);
-                    if (pollCreation) {
-                        const votes = getAggregateVotesInPollMessage({
-                            message: pollCreation,
-                            pollUpdates: update.pollUpdates,
-                        });
-                        logger.debug('Poll votes updated:', votes);
-                    }
-                }
-            }
-        }
-
-        if (events.call) {
-            logger.debug('Call event:', events.call);
-        }
-
-        if (events['labels.association']) {
-            logger.debug('Label association:', events['labels.association']);
-        }
-
-        if (events['labels.edit']) {
-            logger.debug('Label edit:', events['labels.edit']);
-        }
-
-        if (events['newsletter.join']) {
-            logger.debug('Newsletter join:', events['newsletter.join']);
+            await saveCreds().catch(err => logger.error('❌ Save creds failed:', err));
         }
     });
 
     // -------------------------------
-    // CONNECTION TIMEOUT PROMISE
+    // CONNECTION TIMEOUT
     // -------------------------------
     try {
         await new Promise((resolve, reject) => {
-            const connectionTimeout = setTimeout(() => {
-                logger.warn('❌ Connection timed out after 30 seconds');
-                reject(new Error('Connection timed out'));
+            const timeout = setTimeout(() => {
+                logger.warn('❌ Connection timed out after 30s');
+                reject(new Error('Connection timeout'));
             }, 30000);
 
             this.sock.ev.on('connection.update', (update) => {
                 if (update.connection === 'open') {
-                    clearTimeout(connectionTimeout);
+                    clearTimeout(timeout);
                     resolve();
                 } else if (update.lastDisconnect?.error) {
-                    clearTimeout(connectionTimeout);
-                    reject(new Error(`Connection failed: ${update.lastDisconnect.error.message}`));
+                    clearTimeout(timeout);
+                    reject(new Error('Connection failed'));
                 }
             });
         });
     } catch (error) {
-        logger.error('❌ Connection setup failed:', {
-            message: error.message,
-            stack: error.stack
-        });
+        logger.error('❌ Setup failed:', error.message);
         setTimeout(() => this.startWhatsApp(), 5000);
-        throw error;
     }
 }
 
