@@ -12,7 +12,7 @@ class Config {
 
             auth: {
                 useMongoAuth: true ,
-                usePairingCode: false
+                usePairingCode: true
             },
 
             admins: [
