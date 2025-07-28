@@ -48,8 +48,8 @@ class HyperWaBot {
         this.moduleLoader = new ModuleLoader(this)
         this.qrCodeSent = false
         this.useMongoAuth = config.get('auth.useMongoAuth', false)
-        this.usePairingCode = config.get('auth.usePairingCode', false)
-        this.doReplies = config.get('features.doReplies', false)
+        this.usePairingCode = config.get('auth.usePairingCode', true)
+        this.doReplies = config.get('features.doReplies', true)
     }
     async initialize() {
         logger.info('🔧 Initializing HyperWa Userbot...')
