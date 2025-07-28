@@ -1,376 +1,330 @@
-const fs = require("fs");
-const path = require("path");
-const { EventEmitter } = require("events");
-const { Boom } = require("@hapi/boom");
-const pino = require("pino");
-const {
-    isJidBroadcast,
-    isJidGroup,
-    isJidStatusBroadcast,
-    isJidNewsletter,
+const { Boom } = require('@hapi/boom')
+const NodeCache = require('node-cache')
+const { 
+    makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    makeCacheableSignalKeyStore,
     downloadAndProcessHistorySyncNotification,
     getAggregateVotesInPollMessage,
-    proto
-} = require("@whiskeysockets/baileys");
+    isJidNewsletter,
+    encodeWAM,
+    BinaryInfo,
+    proto,
+    isJidBroadcast,
+    isJidGroup,
+    delay
+} = require('@whiskeysockets/baileys')
+const qrcode = require('qrcode-terminal')
+const fs = require('fs-extra')
+const path = require('path')
+const readline = require('readline')
 
-class InMemoryStore extends EventEmitter {
-    constructor(options = {}) {
-        super();
-        
-        // Core Data Structures
-        this.chats = {};
-        this.contacts = {};
-        this.messages = {};
-        this.presences = {};
-        this.groupMetadata = {};
-        this.broadcastListInfo = {};
-        this.callOffer = {};
-        this.stickerPacks = {};
-        this.authState = {};
-        this.syncedHistory = {};
-        this.pollMessages = {};
-        this.newsletterMetadata = {};
-        this.labels = {};
-        this.chatLabels = {};
-        
-        // Enhanced Message Indexing
-        this.messageIndex = {
-            byId: {},
-            byRemoteJid: {},
-            byParticipant: {},
-            byPollId: {}
-        };
+const config = require('../config')
+const logger = require('./logger')
+const MessageHandler = require('./message-handler')
+const { connectDb } = require('../utils/db')
+const ModuleLoader = require('./module-loader')
+const { useMongoAuthState } = require('../utils/mongoAuthState')
+const { makeInMemoryStore } = require('./store')
 
-        // Configuration
-        this.logger = options.logger || pino({ level: "silent" });
-        this.filePath = options.filePath || "./store.json";
-        this.autoSaveInterval = options.autoSaveInterval || 30000;
-        this.maxMessagesPerChat = options.maxMessagesPerChat || 1000;
-        this.autoSaveTimer = null;
+// Readline interface for pairing code
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+const question = (text) => new Promise((resolve) => rl.question(text, resolve))
 
-        // Initialize
-        if (fs.existsSync(this.filePath)) {
-            this.loadFromFile();
-        }
-
-        if (this.autoSaveInterval > 0) {
-            this.startAutoSave();
-        }
+class HyperWaBot {
+    constructor() {
+        this.sock = null
+        this.authPath = './auth_info'
+        this.msgRetryCounterCache = new NodeCache()
+        this.onDemandMap = new Map()
+        this.store = makeInMemoryStore({ 
+            logger: logger.child({ module: 'store' }),
+            filePath: config.get('store.path', './data/store.json'),
+            maxMessagesPerChat: config.get('store.maxMessages', 1000)
+        })
+        this.messageHandler = new MessageHandler(this)
+        this.telegramBridge = null
+        this.isShuttingDown = false
+        this.db = null
+        this.moduleLoader = new ModuleLoader(this)
+        this.qrCodeSent = false
+        this.useMongoAuth = config.get('auth.useMongoAuth', false)
+        this.usePairingCode = config.get('auth.usePairingCode', false)
+        this.doReplies = config.get('features.doReplies', false)
     }
 
-    /* ==================== CORE STORE METHODS ==================== */
+    async initialize() {
+        logger.info('🔧 Initializing HyperWa Userbot...')
 
-    startAutoSave() {
-        this.stopAutoSave(); // Clear existing timer
-        this.autoSaveTimer = setInterval(() => this.saveToFile(), this.autoSaveInterval);
-        this.logger.info(`Auto-save enabled (${this.autoSaveInterval}ms interval)`);
-    }
-
-    stopAutoSave() {
-        if (this.autoSaveTimer) {
-            clearInterval(this.autoSaveTimer);
-            this.autoSaveTimer = null;
-        }
-    }
-
-    save() {
-        return {
-            version: 3,
-            chats: this.chats,
-            contacts: this.contacts,
-            messages: this.messages,
-            presences: this.presences,
-            groupMetadata: this.groupMetadata,
-            broadcastListInfo: this.broadcastListInfo,
-            callOffer: this.callOffer,
-            stickerPacks: this.stickerPacks,
-            authState: this.authState,
-            syncedHistory: this.syncedHistory,
-            pollMessages: this.pollMessages,
-            newsletterMetadata: this.newsletterMetadata,
-            labels: this.labels,
-            chatLabels: this.chatLabels,
-            messageIndex: this.messageIndex,
-            timestamp: Date.now()
-        };
-    }
-
-    load(state = {}) {
         try {
-            this.chats = state.chats || {};
-            this.contacts = state.contacts || {};
-            this.messages = state.messages || {};
-            this.presences = state.presences || {};
-            this.groupMetadata = state.groupMetadata || {};
-            this.broadcastListInfo = state.broadcastListInfo || {};
-            this.callOffer = state.callOffer || {};
-            this.stickerPacks = state.stickerPacks || {};
-            this.authState = state.authState || {};
-            this.syncedHistory = state.syncedHistory || {};
-            this.pollMessages = state.pollMessages || {};
-            this.newsletterMetadata = state.newsletterMetadata || {};
-            this.labels = state.labels || {};
-            this.chatLabels = state.chatLabels || {};
-            this.messageIndex = state.messageIndex || {
-                byId: {},
-                byRemoteJid: {},
-                byParticipant: {},
-                byPollId: {}
-            };
-            this.logger.info(`Store loaded (v${state.version || 1})`);
+            this.db = await connectDb()
+            logger.info('✅ Database connected successfully!')
         } catch (error) {
-            this.logger.error("Failed to load store:", error);
+            logger.error('❌ Failed to connect to database:', error)
+            process.exit(1)
         }
-    }
 
-    saveToFile() {
-        try {
-            fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-            fs.writeFileSync(this.filePath, JSON.stringify(this.save(), null, 2));
-            this.logger.trace("Store saved to file");
-        } catch (error) {
-            this.logger.error("Failed to save store:", error);
-        }
-    }
-
-    loadFromFile() {
-        try {
-            const data = fs.readFileSync(this.filePath, "utf-8");
-            this.load(JSON.parse(data));
-        } catch (error) {
-            this.logger.error("Failed to load store from file:", error);
-        }
-    }
-
-    clear() {
-        this.chats = {};
-        this.contacts = {};
-        this.messages = {};
-        this.presences = {};
-        this.groupMetadata = {};
-        this.broadcastListInfo = {};
-        this.callOffer = {};
-        this.stickerPacks = {};
-        this.authState = {};
-        this.syncedHistory = {};
-        this.pollMessages = {};
-        this.newsletterMetadata = {};
-        this.labels = {};
-        this.chatLabels = {};
-        this.messageIndex = {
-            byId: {},
-            byRemoteJid: {},
-            byParticipant: {},
-            byPollId: {}
-        };
-        this.logger.info("Store cleared");
-    }
-
-    /* ==================== MESSAGE HANDLING ==================== */
-
-    _indexMessage(msg) {
-        if (!msg?.key) return;
-
-        const { id, remoteJid, participant } = msg.key;
-        const pollId = msg.message?.pollCreationMessage?.pollCreationKey?.id;
-
-        // Index by message ID
-        this.messageIndex.byId[id] = { 
-            remoteJid, 
-            timestamp: msg.messageTimestamp,
-            participant
-        };
-
-        // Index by chat
-        if (remoteJid) {
-            this.messageIndex.byRemoteJid[remoteJid] = this.messageIndex.byRemoteJid[remoteJid] || [];
-            this.messageIndex.byRemoteJid[remoteJid].push(id);
-            
-            // Maintain message limit per chat
-            if (this.messageIndex.byRemoteJid[remoteJid].length > this.maxMessagesPerChat) {
-                const oldestId = this.messageIndex.byRemoteJid[remoteJid].shift();
-                delete this.messageIndex.byId[oldestId];
-                if (this.messages[remoteJid]) {
-                    delete this.messages[remoteJid][oldestId];
-                }
+        if (config.get('telegram.enabled')) {
+            try {
+                const TelegramBridge = require('../telegram/bridge')
+                this.telegramBridge = new TelegramBridge(this)
+                await this.telegramBridge.initialize()
+                logger.info('✅ Telegram bridge initialized')
+            } catch (error) {
+                logger.warn('⚠️ Telegram bridge failed to initialize:', error.message)
+                this.telegramBridge = null
             }
         }
 
-        // Index by participant
-        if (participant) {
-            this.messageIndex.byParticipant[participant] = this.messageIndex.byParticipant[participant] || [];
-            this.messageIndex.byParticipant[participant].push(id);
-        }
+        await this.moduleLoader.loadModules()
+        await this.startWhatsApp()
 
-        // Index by poll ID
-        if (pollId) {
-            this.messageIndex.byPollId[pollId] = id;
-            this.pollMessages[pollId] = msg;
-        }
+        logger.info('✅ HyperWa Userbot initialized successfully!')
     }
 
-    upsertMessage(message, type = "append") {
-        const chatId = message?.key?.remoteJid;
-        if (!chatId || !message?.key?.id) return;
+    async startWhatsApp() {
+        let state, saveCreds
 
-        if (!this.messages[chatId]) this.messages[chatId] = {};
+        if (this.sock) {
+            logger.info('🧹 Cleaning up existing WhatsApp socket')
+            this.sock.ev.removeAllListeners()
+            await this.sock.end()
+            this.sock = null
+        }
 
-        if (type === "replace") {
-            this.messages[chatId] = { [message.key.id]: message };
+        if (this.useMongoAuth) {
+            logger.info('🔧 Using MongoDB auth state...')
+            try {
+                ({ state, saveCreds } = await useMongoAuthState())
+            } catch (error) {
+                logger.error('❌ Failed to initialize MongoDB auth state:', error)
+                logger.info('🔄 Falling back to file-based auth...')
+                ({ state, saveCreds } = await useMultiFileAuthState(this.authPath))
+            }
         } else {
-            this.messages[chatId][message.key.id] = message;
+            logger.info('🔧 Using file-based auth state...')
+            ({ state, saveCreds } = await useMultiFileAuthState(this.authPath))
         }
 
-        this._indexMessage(message);
-        this.emit("messages.upsert", { messages: [message], type });
-    }
+        const { version } = await fetchLatestBaileysVersion()
 
-    loadMessage(jid, id) {
-        // Check indexed message first
-        const indexed = this.messageIndex.byId[id];
-        if (indexed && this.messages[indexed.remoteJid]?.[id]) {
-            return this.messages[indexed.remoteJid][id];
-        }
+        try {
+            this.sock = makeWASocket({
+                version,
+                auth: {
+                    creds: state.creds,
+                    keys: makeCacheableSignalKeyStore(state.keys, logger),
+                },
+                msgRetryCounterCache: this.msgRetryCounterCache,
+                generateHighQualityLinkPreview: true,
+                logger: logger.child({ module: 'baileys' }),
+                getMessage: this.getMessage.bind(this),
+                browser: ['HyperWa', 'Chrome', '3.0'],
+                shouldSyncHistoryMessage: () => true,
+                printQRInTerminal: false
+            })
 
-        // Fallback to direct lookup
-        return this.messages[jid]?.[id];
-    }
+            // Bind store to socket events
+            this.store.bind(this.sock.ev)
 
-    getMessagesByParticipant(jid, participant) {
-        const messageIds = this.messageIndex.byParticipant[participant] || [];
-        return messageIds
-            .map(id => this.loadMessage(jid, id))
-            .filter(Boolean);
-    }
-
-    getPollMessage(pollId) {
-        const messageId = this.messageIndex.byPollId[pollId];
-        return messageId ? this.loadMessage(null, messageId) : null;
-    }
-
-    /* ==================== EVENT BINDING ==================== */
-
-    bind(ev) {
-        if (!ev?.on) throw new Error("Event emitter required for binding");
-
-        const safeEmit = (event, handler) => {
-            ev.on(event, (...args) => {
-                try {
-                    handler.call(this, ...args);
-                    this.emit(event, ...args);
-                } catch (error) {
-                    this.logger.error(`Error in ${event} handler:`, error);
+            // Pairing code support
+            if (this.usePairingCode && !this.sock.authState.creds.registered) {
+                const phoneNumber = await question('Please enter your phone number:\n')
+                const code = await this.sock.requestPairingCode(phoneNumber)
+                logger.info(`Pairing code: ${code}`)
+                if (this.telegramBridge) {
+                    await this.telegramBridge.sendMessage(`Your pairing code: ${code}`)
                 }
-            });
-        };
-
-        // Core Events
-        safeEmit("contacts.set", this.setContacts);
-        safeEmit("contacts.upsert", this.upsertContact);
-        safeEmit("contacts.update", this.updateContact);
-        safeEmit("contacts.delete", this.deleteContact);
-
-        safeEmit("chats.set", this.setChats);
-        safeEmit("chats.upsert", this.upsertChat);
-        safeEmit("chats.update", this.updateChat);
-        safeEmit("chats.delete", this.deleteChat);
-
-        safeEmit("messages.set", ({ messages, jid }) => this.setMessages(jid, messages));
-        safeEmit("messages.upsert", ({ messages, type }) => {
-            messages.forEach(msg => this.upsertMessage(msg, type));
-        });
-        safeEmit("messages.update", this.updateMessage);
-        safeEmit("messages.delete", this.deleteMessage);
-
-        // Presence
-        safeEmit("presence.update", ({ id, presences }) => {
-            Object.entries(presences).forEach(([participant, presence]) => {
-                this.updatePresence(id, { participant, ...presence });
-            });
-        });
-
-        // Groups
-        safeEmit("groups.update", this.updateGroupMetadata);
-        safeEmit("groups.upsert", (groups) => {
-            groups.forEach(group => this.setGroupMetadata(group.id, group));
-        });
-
-        // Calls
-        safeEmit("call", (calls) => {
-            calls.forEach(call => {
-                if (call.offer) {
-                    this.setCallOffer(call.from, call);
-                } else if (["timeout", "reject"].includes(call.status)) {
-                    this.clearCallOffer(call.from);
-                }
-            });
-        });
-
-        // History Sync
-        safeEmit("messaging-history.set", async (history) => {
-            if (history.syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
-                this.onDemandMap.set(history.messages[0].key.id, history.syncType);
             }
-            await downloadAndProcessHistorySyncNotification(history, {
-                downloadHistory: true,
-                shouldProcessHistoryMsg: () => true
-            });
-        });
 
-        // Poll Updates
-        safeEmit("messages.update", (updates) => {
-            updates.forEach(({ key, update }) => {
-                if (update.pollUpdates) {
-                    const pollMsg = this.getPollMessage(key.id);
-                    if (pollMsg) {
-                        const votes = getAggregateVotesInPollMessage({
-                            message: pollMsg,
-                            pollUpdates: update.pollUpdates
-                        });
-                        this.emit("poll.update", { key, votes });
+            // Process all events
+            this.sock.ev.process(async (events) => {
+                // Connection updates
+                if (events['connection.update']) {
+                    const update = events['connection.update']
+                    const { connection, lastDisconnect } = update
+                    
+                    if (connection === 'close') {
+                        const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut
+                        if (shouldReconnect && !this.isShuttingDown) {
+                            logger.warn('🔄 Connection closed, reconnecting...')
+                            setTimeout(() => this.startWhatsApp(), 5000)
+                        }
+                    } else if (connection === 'open') {
+                        await this.onConnectionOpen()
                     }
                 }
-            });
-        });
 
-        // Newsletters
-        safeEmit("newsletter.join", (update) => {
-            this.newsletterMetadata[update.id] = update;
-        });
+                // Credentials update
+                if (events['creds.update']) {
+                    await saveCreds()
+                }
 
-        // Labels
-        safeEmit("labels.edit", (edit) => {
-            this.labels[edit.label.id] = edit.label;
-        });
+                // History sync
+                if (events['messaging-history.set']) {
+                    const { chats, contacts, messages, isLatest, progress, syncType } = events['messaging-history.set']
+                    logger.info(`History sync: ${chats.length} chats, ${contacts.length} contacts, ${messages.length} msgs`)
+                    
+                    if (syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
+                        this.onDemandMap.set(messages[0].key.id, syncType)
+                    }
+                }
 
-        safeEmit("labels.association", (association) => {
-            this.chatLabels[association.chatJid] = association.labels;
-        });
+                // Message updates (deletions, reactions, etc)
+                if (events['messages.update']) {
+                    for (const { key, update } of events['messages.update']) {
+                        if (update.pollUpdates) {
+                            const pollCreation = await this.getMessage(key)
+                            if (pollCreation) {
+                                const votes = getAggregateVotesInPollMessage({
+                                    message: pollCreation,
+                                    pollUpdates: update.pollUpdates,
+                                })
+                                logger.debug('Poll votes updated:', votes)
+                            }
+                        }
+                    }
+                }
 
-        this.logger.info("All store events bound successfully");
+                // Call events
+                if (events.call) {
+                    logger.debug('Call event:', events.call)
+                }
+
+                // Label events
+                if (events['labels.association']) {
+                    logger.debug('Label association:', events['labels.association'])
+                }
+
+                if (events['labels.edit']) {
+                    logger.debug('Label edit:', events['labels.edit'])
+                }
+
+                // Newsletter events
+                if (events['newsletter.join']) {
+                    logger.debug('Newsletter join:', events['newsletter.join'])
+                }
+            })
+
+            await new Promise((resolve, reject) => {
+                const connectionTimeout = setTimeout(() => {
+                    if (!this.sock.user) {
+                        logger.warn('❌ QR code scan timed out after 30 seconds')
+                        reject(new Error('QR code scan timed out'))
+                    }
+                }, 30000)
+
+                this.sock.ev.on('connection.update', update => {
+                    if (update.connection === 'open') {
+                        clearTimeout(connectionTimeout)
+                        resolve()
+                    }
+                })
+            })
+
+        } catch (error) {
+            logger.error('❌ Failed to initialize WhatsApp socket:', error)
+            setTimeout(() => this.startWhatsApp(), 5000)
+        }
     }
 
-    /* ==================== CLEANUP ==================== */
+    async getMessage(key) {
+        // Try to get message from store first
+        const message = this.store.loadMessage(key.remoteJid, key.id)
+        if (message) return message
 
-    cleanup() {
-        this.stopAutoSave();
-        this.saveToFile();
-        this.logger.info("Store cleanup completed");
+        // Fallback to default behavior
+        return { conversation: 'Message not found' }
     }
 
-    /* ==================== HELPER METHODS ==================== */
+    async sendMessageWTyping(jid, content) {
+        await this.sock.presenceSubscribe(jid)
+        await delay(500)
 
-    isBroadcast(jid) { return isJidBroadcast(jid); }
-    isGroup(jid) { return isJidGroup(jid); }
-    isNewsletter(jid) { return isJidNewsletter(jid); }
-    isStatusBroadcast(jid) { return isJidStatusBroadcast(jid); }
+        await this.sock.sendPresenceUpdate('composing', jid)
+        await delay(2000)
+
+        await this.sock.sendPresenceUpdate('paused', jid)
+
+        return this.sock.sendMessage(jid, content)
+    }
+
+    async onConnectionOpen() {
+        logger.info(`✅ Connected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`)
+
+        if (!config.get('bot.owner') && this.sock.user) {
+            config.set('bot.owner', this.sock.user.id)
+            logger.info(`👑 Owner set to: ${this.sock.user.id}`)
+        }
+
+        if (this.telegramBridge) {
+            try {
+                await this.telegramBridge.setupWhatsAppHandlers()
+                await this.telegramBridge.syncWhatsAppConnection()
+            } catch (err) {
+                logger.warn('⚠️ Telegram setup error:', err.message)
+            }
+        }
+
+        await this.sendStartupMessage()
+    }
+
+    async sendStartupMessage() {
+        const owner = config.get('bot.owner')
+        if (!owner) return
+
+        const startupMessage = `🚀 *${config.get('bot.name')} v${config.get('bot.version')}* is now online!\n\n` +
+                              `📊 *Store Stats:*\n` +
+                              `• Chats: ${Object.keys(this.store.chats).length}\n` +
+                              `• Contacts: ${Object.keys(this.store.contacts).length}\n` +
+                              `• Messages: ${Object.keys(this.store.messageIndex.byId).length}\n\n` +
+                              `Type *${config.get('bot.prefix')}help* for commands`
+
+        try {
+            await this.sock.sendMessage(owner, { text: startupMessage })
+        } catch (error) {
+            logger.warn('Failed to send startup message:', error)
+        }
+    }
+
+    async connect() {
+        if (!this.sock) {
+            await this.startWhatsApp()
+        }
+        return this.sock
+    }
+
+    async sendMessage(jid, content) {
+        if (!this.sock) {
+            throw new Error('WhatsApp socket not initialized')
+        }
+        return await this.sock.sendMessage(jid, content)
+    }
+
+    async shutdown() {
+        logger.info('🛑 Shutting down HyperWa Userbot...')
+        this.isShuttingDown = true
+
+        if (this.telegramBridge) {
+            try {
+                await this.telegramBridge.shutdown()
+            } catch (err) {
+                logger.warn('⚠️ Telegram shutdown error:', err.message)
+            }
+        }
+
+        if (this.sock) {
+            await this.sock.end()
+        }
+
+        // Cleanup store
+        this.store.cleanup()
+
+        logger.info('✅ HyperWa Userbot shutdown complete')
+        process.exit(0)
+    }
 }
 
-function makeInMemoryStore(options = {}) {
-    return new InMemoryStore(options);
-}
-
-module.exports = {
-    makeInMemoryStore,
-    InMemoryStore
-};
+module.exports = { HyperWaBot }
