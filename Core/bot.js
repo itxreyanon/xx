@@ -1,4 +1,5 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWALegacySocket, useSingleFileLegacyAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+
 const qrcode = require('qrcode-terminal');
 const fs = require('fs-extra');
 const path = require('path');
@@ -204,11 +205,13 @@ class HyperWaBot {
             } catch (error) {
                 logger.error('❌ Failed to initialize MongoDB auth state:', error);
                 logger.info('🔄 Falling back to file-based auth...');
-                ({ state, saveCreds } = await useMultiFileAuthState(this.authPath));
+                ({ state, saveState } = useSingleFileLegacyAuthState(`${this.authPath}/auth_info.json`));
+
             }
         } else {
             logger.info('🔧 Using file-based auth state...');
-            ({ state, saveCreds } = await useMultiFileAuthState(this.authPath));
+            ({ state, saveState } = useSingleFileLegacyAuthState(`${this.authPath}/auth_info.json`));
+
         }
 
         this.authState = { state, saveCreds };
@@ -217,7 +220,8 @@ class HyperWaBot {
     async createSocket() {
         const { version } = await fetchLatestBaileysVersion();
 
-        this.sock = makeWASocket({
+        this.sock = makeWALegacySocket({
+
             auth: this.authState.state,
             version,
             printQRInTerminal: false,
@@ -350,17 +354,20 @@ class HyperWaBot {
     async handleConnectionUpdate(update) {
         const { connection, lastDisconnect, qr } = update;
 
-        if (qr) {
-            logger.info('📱 WhatsApp QR code generated');
-            qrcode.generate(qr, { small: true });
+if (update.pairingCode) {
+    logger.info('📲 Pairing Code generated: ' + update.pairingCode);
 
-            if (this.telegramBridge) {
-                try {
-                    await this.telegramBridge.sendQRCode(qr);
-                } catch (error) {
-                    logger.warn('⚠️ TelegramBridge failed to send QR:', error.message);
-                }
-            }
+    if (this.telegramBridge) {
+        try {
+            await this.telegramBridge.sendText(`📲 Your WhatsApp *pairing code* is:\n\n\`${update.pairingCode}\``);
+        } catch (err) {
+            logger.warn('⚠️ Failed to send pairing code via Telegram:', err.message);
+        }
+    } else {
+        console.log('Pairing Code:', update.pairingCode);
+    }
+}
+
         }
 
         if (connection === 'close') {
