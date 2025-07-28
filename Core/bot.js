@@ -31,8 +31,8 @@ const { makeInMemoryStore } = require('./store')
 
 // Readline interface for pairing code
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
-const askQuestion = (text: string) => {
-	return new Promise<string>((resolve) => {
+const askQuestion = (text) => {
+	return new Promise((resolve) => {
 		const rl = readline.createInterface({
 			input: process.stdin,
 			output: process.stdout
