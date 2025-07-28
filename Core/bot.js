@@ -46,6 +46,34 @@ class HyperWaBot {
         this.store.loadFromFile();
     }
 
+    setupGracefulShutdown() {
+        const gracefulShutdown = async (signal) => {
+            logger.info(`🛑 Received ${signal}, initiating graceful shutdown...`);
+            await this.shutdown();
+            process.exit(0);
+        };
+
+        process.on('SIGINT', gracefulShutdown);
+        process.on('SIGTERM', gracefulShutdown);
+        process.on('SIGQUIT', gracefulShutdown);
+        
+        // Handle uncaught exceptions
+        process.on('uncaughtException', (error) => {
+            logger.error('❌ Uncaught Exception:', error);
+            // Don't exit immediately, try to recover
+            setTimeout(() => {
+                if (!this.isShuttingDown) {
+                    this.handleConnectionError(error);
+                }
+            }, 1000);
+        });
+
+        process.on('unhandledRejection', (reason, promise) => {
+            logger.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+            // Don't exit, just log and continue
+        });
+    }
+
     async initialize() {
         logger.info('🔧 Initializing HyperWa Userbot...');
 
