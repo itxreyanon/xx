@@ -84,152 +84,195 @@ class HyperWaBot {
         logger.info('✅ HyperWa Userbot initialized successfully!')
     }
 
-    async startWhatsApp() {
-        let state, saveCreds
+   async startWhatsApp() {
+    let state, saveCreds;
 
-        if (this.sock) {
-            logger.info('🧹 Cleaning up existing WhatsApp socket')
-            this.sock.ev.removeAllListeners()
-            await this.sock.end()
-            this.sock = null
-        }
+    if (this.sock) {
+        logger.info('🧹 Cleaning up existing WhatsApp socket');
+        this.sock.ev.removeAllListeners();
+        await this.sock.end();
+        this.sock = null;
+    }
 
-        if (this.useMongoAuth) {
-            logger.info('🔧 Using MongoDB auth state...')
-            try {
-                ({ state, saveCreds } = await useMongoAuthState())
-            } catch (error) {
-                logger.error('❌ Failed to initialize MongoDB auth state:', error)
-                logger.info('🔄 Falling back to file-based auth...')
-                ({ state, saveCreds } = await useMultiFileAuthState(this.authPath))
-            }
-        } else {
-            logger.info('🔧 Using file-based auth state...')
-            ({ state, saveCreds } = await useMultiFileAuthState(this.authPath))
-        }
-
-        const { version } = await fetchLatestBaileysVersion()
-
+    if (this.useMongoAuth) {
+        logger.info('🔧 Using MongoDB auth state...');
         try {
-            this.sock = makeWASocket({
-                version,
-                auth: {
-                    creds: state.creds,
-                    keys: makeCacheableSignalKeyStore(state.keys, logger),
-                },
-                msgRetryCounterCache: this.msgRetryCounterCache,
-                generateHighQualityLinkPreview: true,
-                logger: logger.child({ module: 'baileys' }),
-                getMessage: this.getMessage.bind(this),
-                browser: ['HyperWa', 'Chrome', '3.0'],
-                shouldSyncHistoryMessage: () => true,
-                printQRInTerminal: false
-            })
-
-            // Bind store to socket events
-            this.store.bind(this.sock.ev)
-
-            // Pairing code support
-            if (this.usePairingCode && !this.sock.authState.creds.registered) {
-                const phoneNumber = await question('Please enter your phone number:\n')
-                const code = await this.sock.requestPairingCode(phoneNumber)
-                logger.info(`Pairing code: ${code}`)
-                if (this.telegramBridge) {
-                    await this.telegramBridge.sendMessage(`Your pairing code: ${code}`)
-                }
-            }
-
-            // Process all events
-            this.sock.ev.process(async (events) => {
-                // Connection updates
-                if (events['connection.update']) {
-                    const update = events['connection.update']
-                    const { connection, lastDisconnect } = update
-                    
-                    if (connection === 'close') {
-                        const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-
-                        if (shouldReconnect && !this.isShuttingDown) {
-                            logger.warn('🔄 Connection closed, reconnecting...')
-                            setTimeout(() => this.startWhatsApp(), 5000)
-                        }
-                    } else if (connection === 'open') {
-                        await this.onConnectionOpen()
-                    }
-                }
-
-                // Credentials update
-                if (events['creds.update']) {
-                    await saveCreds()
-                }
-
-                // History sync
-                if (events['messaging-history.set']) {
-                    const { chats, contacts, messages, isLatest, progress, syncType } = events['messaging-history.set']
-                    logger.info(`History sync: ${chats.length} chats, ${contacts.length} contacts, ${messages.length} msgs`)
-                    
-                    if (syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
-                        this.onDemandMap.set(messages[0].key.id, syncType)
-                    }
-                }
-
-                // Message updates (deletions, reactions, etc)
-                if (events['messages.update']) {
-                    for (const { key, update } of events['messages.update']) {
-                        if (update.pollUpdates) {
-                            const pollCreation = await this.getMessage(key)
-                            if (pollCreation) {
-                                const votes = getAggregateVotesInPollMessage({
-                                    message: pollCreation,
-                                    pollUpdates: update.pollUpdates,
-                                })
-                                logger.debug('Poll votes updated:', votes)
-                            }
-                        }
-                    }
-                }
-
-                // Call events
-                if (events.call) {
-                    logger.debug('Call event:', events.call)
-                }
-
-                // Label events
-                if (events['labels.association']) {
-                    logger.debug('Label association:', events['labels.association'])
-                }
-
-                if (events['labels.edit']) {
-                    logger.debug('Label edit:', events['labels.edit'])
-                }
-
-                // Newsletter events
-                if (events['newsletter.join']) {
-                    logger.debug('Newsletter join:', events['newsletter.join'])
-                }
-            })
-
-            await new Promise((resolve, reject) => {
-                const connectionTimeout = setTimeout(() => {
-                    if (!this.sock.user) {
-                        logger.warn('❌ QR code scan timed out after 30 seconds')
-                        reject(new Error('QR code scan timed out'))
-                    }
-                }, 30000)
-
-                this.sock.ev.on('connection.update', update => {
-                    if (update.connection === 'open') {
-                        clearTimeout(connectionTimeout)
-                        resolve()
-                    }
-                })
-            })
-
+            ({ state, saveCreds } = await useMongoAuthState());
         } catch (error) {
-            logger.error('❌ Failed to initialize WhatsApp socket:', error)
-            setTimeout(() => this.startWhatsApp(), 5000)
+            logger.error('❌ Failed to initialize MongoDB auth state:', error.stack || error);
+            logger.info('🔄 Falling back to file-based auth...');
+            try {
+                ({ state, saveCreds } = await useMultiFileAuthState(this.authPath));
+            } catch (fileAuthError) {
+                logger.error('❌ Failed to initialize file-based auth state:', fileAuthError.stack || fileAuthError);
+                throw fileAuthError; // Rethrow to be caught by the outer try-catch
+            }
+        }
+    } else {
+        logger.info('🔧 Using file-based auth state...');
+        try {
+            ({ state, saveCreds } = await useMultiFileAuthState(this.authPath));
+        } catch (fileAuthError) {
+            logger.error('❌ Failed to initialize file-based auth state:', fileAuthError.stack || fileAuthError);
+            throw fileAuthError; // Rethrow to be caught by the outer try-catch
         }
     }
+
+    let version;
+    try {
+        ({ version } = await fetchLatestBaileysVersion());
+        logger.info(`Fetched Baileys version: ${version.join('.')}`);
+    } catch (error) {
+        logger.error('❌ Failed to fetch latest Baileys version:', error.stack || error);
+        throw error;
+    }
+
+    try {
+        this.sock = makeWASocket({
+            version,
+            auth: {
+                creds: state.creds,
+                keys: makeCacheableSignalKeyStore(state.keys, logger),
+            },
+            msgRetryCounterCache: this.msgRetryCounterCache,
+            generateHighQualityLinkPreview: true,
+            logger: logger.child({ module: 'baileys' }),
+            getMessage: this.getMessage.bind(this),
+            browser: ['HyperWa', 'Chrome', '3.0'],
+            shouldSyncHistoryMessage: () => true,
+            printQRInTerminal: false
+        });
+
+        // Bind store to socket events
+        this.store.bind(this.sock.ev);
+
+        // Pairing code support
+        if (this.usePairingCode && !this.sock.authState.creds.registered) {
+            try {
+                const phoneNumber = await question('Please enter your phone number:\n');
+                const code = await this.sock.requestPairingCode(phoneNumber);
+                logger.info(`Pairing code: ${code}`);
+                if (this.telegramBridge) {
+                    await this.telegramBridge.sendMessage(`Your pairing code: ${code}`);
+                }
+            } catch (pairingError) {
+                logger.error('❌ Failed to generate pairing code:', pairingError.stack || pairingError);
+                throw pairingError;
+            }
+        }
+
+        // Process all events
+        this.sock.ev.process(async (events) => {
+            logger.debug('Processing Baileys events:', Object.keys(events));
+            // Connection updates
+            if (events['connection.update']) {
+                const update = events['connection.update'];
+                const { connection, lastDisconnect } = update;
+                
+                if (connection === 'close') {
+                    const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+
+                    if (shouldReconnect && !this.isShuttingDown) {
+                        logger.warn('🔄 Connection closed, reconnecting...', {
+                            statusCode: lastDisconnect?.error?.output?.statusCode,
+                            error: lastDisconnect?.error?.message
+                        });
+                        setTimeout(() => this.startWhatsApp(), 5000);
+                    } else {
+                        logger.error('❌ Connection closed without reconnect:', {
+                            statusCode: lastDisconnect?.error?.output?.statusCode,
+                            error: lastDisconnect?.error?.message
+                        });
+                    }
+                } else if (connection === 'open') {
+                    await this.onConnectionOpen();
+                }
+            }
+
+            // Credentials update
+            if (events['creds.update']) {
+                try {
+                    await saveCreds();
+                } catch (saveCredsError) {
+                    logger.error('❌ Failed to save credentials:', saveCredsError.stack || saveCredsError);
+                }
+            }
+
+            // History sync
+            if (events['messaging-history.set']) {
+                const { chats, contacts, messages, isLatest, progress, syncType } = events['messaging-history.set'];
+                logger.info(`History sync: ${chats.length} chats, ${contacts.length} contacts, ${messages.length} msgs`);
+                
+                if (syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
+                    this.onDemandMap.set(messages[0].key.id, syncType);
+                }
+            }
+
+            // Message updates (deletions, reactions, etc)
+            if (events['messages.update']) {
+                for (const { key, update } of events['messages.update']) {
+                    if (update.pollUpdates) {
+                        const pollCreation = await this.getMessage(key);
+                        if (pollCreation) {
+                            const votes = getAggregateVotesInPollMessage({
+                                message: pollCreation,
+                                pollUpdates: update.pollUpdates,
+                            });
+                            logger.debug('Poll votes updated:', votes);
+                        }
+                    }
+                }
+            }
+
+            // Call events
+            if (events.call) {
+                logger.debug('Call event:', events.call);
+            }
+
+            // Label events
+            if (events['labels.association']) {
+                logger.debug('Label association:', events['labels.association']);
+            }
+
+            if (events['labels.edit']) {
+                logger.debug('Label edit:', events['labels.edit']);
+            }
+
+            // Newsletter events
+            if (events['newsletter.join']) {
+                logger.debug('Newsletter join:', events['newsletter.join']);
+            }
+        });
+
+        await new Promise((resolve, reject) => {
+            const connectionTimeout = setTimeout(() => {
+                if (!this.sock.user) {
+                    logger.warn('❌ QR code scan timed out after 30 seconds');
+                    reject(new Error('QR code scan timed out'));
+                }
+            }, 30000);
+
+            this.sock.ev.on('connection.update', update => {
+                if (update.connection === 'open') {
+                    clearTimeout(connectionTimeout);
+                    resolve();
+                } else if (update.lastDisconnect?.error) {
+                    clearTimeout(connectionTimeout);
+                    reject(new Error(`Connection failed: ${update.lastDisconnect.error.message}`));
+                }
+            });
+        });
+
+    } catch (error) {
+        logger.error('❌ Failed to initialize WhatsApp socket:', {
+            message: error.message,
+            stack: error.stack,
+            name: error.name
+        });
+        setTimeout(() => this.startWhatsApp(), 5000);
+        throw error; // Rethrow to allow main.js to catch and log
+    }
+}
 
     async getMessage(key) {
         // Try to get message from store first
