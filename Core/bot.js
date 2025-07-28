@@ -1,4 +1,5 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, isJidNewsletter } = require('@whiskeysockets/baileys'); // Added imports
+// bot.js (Updated with Configurable Pairing Logic)
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys'); // Added makeCacheableSignalKeyStore
 const qrcode = require('qrcode-terminal');
 const fs = require('fs-extra');
 const path = require('path');
@@ -9,12 +10,15 @@ const { connectDb } = require('../utils/db');
 const ModuleLoader = require('./module-loader');
 const { useMongoAuthState } = require('../utils/mongoAuthState');
 const { makeInMemoryStore } = require('./store');
-// --- Added imports for new features ---
+// --- Added imports for pairing code ---
 const readline = require('readline');
-const { proto } = require('@whiskeysockets/baileys'); // Needed for proto.HistorySyncType
 
-// --- Pairing Code & Reply Flags ---
-const usePairingCode = process.argv.includes('--use-pairing-code');
+// --- Determine pairing mode ---
+// Priority: CLI flag > Config file > Default (QR)
+const cliUsePairingCode = process.argv.includes('--use-pairing-code');
+const configUsePairingCode = config.get('auth.usePairingCode', false); // Add this to your config
+const usePairingCode = cliUsePairingCode || configUsePairingCode;
+// --- Reply flag from example (optional) ---
 const doReplies = process.argv.includes('--do-reply');
 
 class HyperWaBot {
@@ -34,11 +38,14 @@ class HyperWaBot {
             filePath: './store.json',
             autoSaveInterval: 30000 // Auto-save every 30 seconds
         });
-        // --- Removed stability improvements (reconnectAttempts, maxReconnectAttempts, etc.) ---
+        // Stability improvements
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 10;
+        this.reconnectDelay = 5000;
         this.connectionTimeout = null;
         this.isConnecting = false;
-        // --- Removed messageQueue and isProcessingMessages as we'll use example's direct handling ---
-
+        this.messageQueue = [];
+        this.isProcessingMessages = false;
         // Graceful shutdown handling
         this.setupGracefulShutdown();
         // Load existing store data
@@ -60,9 +67,7 @@ class HyperWaBot {
             // Don't exit immediately, try to recover
             setTimeout(() => {
                 if (!this.isShuttingDown) {
-                    // Simplified error handling for connection
-                    logger.warn('⚠️ Connection error (from uncaughtException), attempting restart...');
-                    this.startWhatsApp().catch(err => logger.error('❌ Error restarting after uncaughtException:', err));
+                    this.handleConnectionError(error);
                 }
             }, 1000);
         });
@@ -82,8 +87,8 @@ class HyperWaBot {
             // Load modules
             await this.moduleLoader.loadModules();
             // Start WhatsApp connection
-            await this.startWhatsApp(); // This will now handle reconnection recursively
-            // Removed success log here as connection open is handled in event handler
+            await this.startWhatsApp();
+            logger.info('✅ HyperWa Userbot initialized successfully!');
         } catch (error) {
             logger.error('❌ Failed to initialize bot:', error);
             throw error;
@@ -136,13 +141,12 @@ class HyperWaBot {
             await this.cleanupExistingConnection();
             await this.initializeAuthState();
             await this.createSocket();
-            // Removed waitForConnection as example doesn't use it
+            await this.waitForConnection();
+            this.reconnectAttempts = 0; // Reset on successful connection
             this.isConnecting = false;
         } catch (error) {
             this.isConnecting = false;
-            // Simplified error handling, let reconnection logic in event handler deal with it
-            logger.error('❌ Error during startWhatsApp:', error);
-            // The recursive reconnection is handled in the connection.update event now
+            await this.handleConnectionError(error);
         }
     }
 
@@ -193,22 +197,25 @@ class HyperWaBot {
             // --- Updated auth state to match example ---
             auth: {
                 creds: this.authState.state.creds,
-                keys: makeCacheableSignalKeyStore(this.authState.state.keys, logger.child({ module: 'baileys-keys' })),
+                /** caching makes the store faster to send/recv messages */
+                keys: makeCacheableSignalKeyStore(this.authState.state.keys, logger.child({ module: 'baileys-keys' })), // Added from example
             },
-            // Removed printQRInTerminal as we handle QR manually
-            // --- Updated getMessage function to be simpler, like example ---
+            printQRInTerminal: false, // We handle QR manually
+            // --- Updated getMessage function (kept mostly original, simplified fallback) ---
             getMessage: async (key) => {
-                // Try to get message from store first (as in your original)
+                // Try to get message from store first
                 try {
                     const message = this.store.loadMessage(key.remoteJid, key.id);
                     if (message) {
                         return message.message || { conversation: 'Message found but content unavailable' };
                     }
+                    // Simplified fallback like example
+                    return { conversation: 'Message not found in store' };
                 } catch (error) {
                     logger.warn('Error retrieving message from store in getMessage:', error);
+                    // Simplified fallback like example
+                    return { conversation: 'Error retrieving message' };
                 }
-                // Fallback like example
-                return proto.Message.fromObject({ conversation: 'Message not found in store or error occurred' });
             },
             browser: ['HyperWa', 'Chrome', '3.0'],
             // Add connection options for stability
@@ -219,274 +226,249 @@ class HyperWaBot {
             retryRequestDelayMs: 250,
             maxMsgRetryCount: 5,
             // --- Added from example for potential features ---
-            // msgRetryCounterCache: ..., // You might want to add this cache if needed
             generateHighQualityLinkPreview: true,
         });
 
         // Bind store to socket events
         this.store.bind(this.sock.ev);
 
-        // --- Pairing Code Logic (from example) ---
-        if (usePairingCode && !this.sock.authState.creds.registered) {
-            const question = (text) => new Promise((resolve) => {
-                const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-                rl.question(text, (answer) => {
-                    rl.close();
-                    resolve(answer);
-                });
-            });
+        // --- Pairing Code Logic Setup ---
+        // The actual request will happen in handleConnectionUpdate when connection is 'connecting'
+        // and the session is not registered.
+        if (usePairingCode) {
+             logger.info('📱 Pairing code mode enabled (via CLI flag or config). Will request after connection starts if needed.');
+        } else {
+             logger.info('📱 QR code mode enabled (default or via config/CLI).');
+        }
 
-            (async () => {
+        this.setupEventHandlers();
+    }
+
+    async waitForConnection() {
+        return new Promise((resolve, reject) => {
+            this.connectionTimeout = setTimeout(() => {
+                if (!this.sock?.user) {
+                    logger.warn('❌ Connection timed out after 60 seconds');
+                    reject(new Error('Connection timeout'));
+                }
+            }, 60000);
+            const connectionHandler = (update) => {
+                if (update.connection === 'open') {
+                    if (this.connectionTimeout) {
+                        clearTimeout(this.connectionTimeout);
+                        this.connectionTimeout = null;
+                    }
+                    this.sock.ev.off('connection.update', connectionHandler);
+                    resolve();
+                }
+            };
+            this.sock.ev.on('connection.update', connectionHandler);
+        });
+    }
+
+    setupEventHandlers() {
+        // Connection update handler with better error handling
+        this.sock.ev.on('connection.update', async (update) => {
+            try {
+                await this.handleConnectionUpdate(update);
+            } catch (error) {
+                logger.error('❌ Error in connection update handler:', error);
+            }
+        });
+        // Credentials update handler with error handling
+        this.sock.ev.on('creds.update', async () => {
+            try {
+                await this.authState.saveCreds();
+            } catch (error) {
+                logger.error('❌ Error saving credentials:', error);
+            }
+        });
+        // Message handler with queue system
+        this.sock.ev.on('messages.upsert', async (messageUpdate) => {
+            try {
+                // Add messages to queue for processing
+                this.messageQueue.push(messageUpdate);
+                await this.processMessageQueue();
+            } catch (error) {
+                logger.error('❌ Error handling message upsert:', error);
+            }
+        });
+        // Add other event handlers with error wrapping
+        this.sock.ev.on('messages.update', async (updates) => {
+            try {
+                // Handle message updates (read receipts, etc.)
+                logger.debug('📝 Message updates received:', updates.length);
+            } catch (error) {
+                logger.error('❌ Error handling message updates:', error);
+            }
+        });
+        this.sock.ev.on('presence.update', async (update) => {
+            try {
+                // Handle presence updates
+                logger.debug('👤 Presence update:', update.id);
+            } catch (error) {
+                logger.error('❌ Error handling presence update:', error);
+            }
+        });
+    }
+
+    async processMessageQueue() {
+        if (this.isProcessingMessages || this.messageQueue.length === 0) {
+            return;
+        }
+        this.isProcessingMessages = true;
+        try {
+            while (this.messageQueue.length > 0) {
+                const messageUpdate = this.messageQueue.shift();
+                await this.messageHandler.handleMessages(messageUpdate);
+                // Small delay to prevent overwhelming the system
+                await this.sleep(10);
+            }
+        } catch (error) {
+            logger.error('❌ Error processing message queue:', error);
+        } finally {
+            this.isProcessingMessages = false;
+        }
+    }
+
+    async handleConnectionUpdate(update) {
+        const { connection, lastDisconnect, qr } = update;
+
+        // --- Handle Pairing Code Request ---
+        // This is the key part: request pairing code when connecting and not registered
+        if (usePairingCode && connection === 'connecting' && this.sock && !this.sock.authState?.creds?.registered) {
+            // Check if we haven't already requested for this session attempt
+            // A simple way is to check if qr was ever generated/sent in this session
+            if (!this.qrCodeSent) {
+                logger.info('🔐 Requesting pairing code...');
+                const question = (text) => new Promise((resolve) => {
+                    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+                    rl.question(text, (answer) => {
+                        rl.close();
+                        resolve(answer.trim()); // Trim whitespace
+                    });
+                });
+
                 try {
-                    const phoneNumber = await question('Please enter your phone number (with country code, no +):\n');
+                    // Ensure the phone number format is correct (no leading +, just digits)
+                    let phoneNumber = await question('Please enter your phone number (with country code, e.g., 1234567890):\n');
+                    // Basic sanitization: remove any non-digit characters (like +)
+                    phoneNumber = phoneNumber.replace(/\D/g, '');
+                    if (!phoneNumber) {
+                        throw new Error("Invalid phone number entered.");
+                    }
                     const code = await this.sock.requestPairingCode(phoneNumber);
-                    logger.info(`📱 Pairing code requested: ${code}`);
+                    logger.info(`📱 Pairing code requested for ${phoneNumber}: ${code}`);
                     // Optionally send to Telegram bridge if available
                     if (this.telegramBridge) {
                         try {
-                            await this.telegramBridge.logToTelegram('📱 Pairing Code', `Your pairing code is: \`${code}\``);
+                            await this.telegramBridge.logToTelegram('📱 Pairing Code', `Your pairing code for ${phoneNumber} is: \`${code}\``);
                         } catch (err) {
                             logger.warn('⚠️ Failed to send pairing code via Telegram:', err.message);
                         }
                     }
+                    // Mark that we've handled pairing for this connection attempt
+                    // We use qrCodeSent as a flag even though we're not using QR, to prevent re-requesting
+                    this.qrCodeSent = true;
                 } catch (err) {
-                    logger.error('❌ Error requesting pairing code:', err);
-                }
-            })();
-        }
-
-        // --- Use sock.ev.process like the example ---
-        this.setupEventHandlers();
-    }
-
-    // --- Removed waitForConnection method ---
-
-    setupEventHandlers() {
-        // --- Replaced individual sock.ev.on listeners with sock.ev.process ---
-        this.sock.ev.process(
-            async (events) => {
-                // --- Connection Update (from example, with your logging) ---
-                if(events['connection.update']) {
-                    const update = events['connection.update'];
-                    const { connection, lastDisconnect, qr } = update;
-
-                    if(qr) {
-                        logger.info('📱 WhatsApp QR code generated');
-                        qrcode.generate(qr, { small: true });
-                        if (this.telegramBridge) {
-                            try {
-                                await this.telegramBridge.sendQRCode(qr);
-                            } catch (error) {
-                                logger.warn('⚠️ TelegramBridge failed to send QR:', error.message);
-                            }
-                        }
-                    }
-
-                    if(connection === 'close') {
-                        // --- Simplified reconnection logic from example ---
-                        const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-                        logger.warn(`🔌 Connection closed. Should reconnect: ${shouldReconnect}`);
-                        if(shouldReconnect) {
-                            logger.info('🔄 Attempting to reconnect...');
-                            await this.startWhatsApp(); // Recursive call like example
-                        } else {
-                            logger.error('❌ Device logged out. Please delete auth_info and restart.');
-                            await this.clearAuthState();
-                            // Let graceful shutdown handle exit or keep trying?
-                            // For now, exit as example suggests for logged out
-                            process.exit(1);
-                        }
-                    } else if(connection === 'open') {
-                         logger.info(`✅ Connected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`);
-                        // --- Call your onConnectionOpen logic ---
-                        await this.onConnectionOpen();
-                        // --- WAM Example (commented out like in example) ---
-                        const sendWAMExample = false;
-                        if(sendWAMExample) {
-                            try {
-                                // WARNING: THIS WILL SEND A WAM EXAMPLE AND THIS IS A ****CAPTURED MESSAGE.****
-                                // DO NOT ACTUALLY ENABLE THIS UNLESS YOU MODIFIED THE FILE.JSON!!!!!
-                                // THE ANALYTICS IN THE FILE ARE OLD. DO NOT USE THEM.
-                                // YOUR APP SHOULD HAVE GLOBALS AND ANALYTICS ACCURATE TO TIME, DATE AND THE SESSION
-                                // THIS FILE.JSON APPROACH IS JUST AN APPROACH I USED, BE FREE TO DO THIS IN ANOTHER WAY.
-                                // THE FIRST EVENT CONTAINS THE CONSTANT GLOBALS, EXCEPT THE seqenceNumber(in the event) and commitTime
-                                // THIS INCLUDES STUFF LIKE ocVersion WHICH IS CRUCIAL FOR THE PREVENTION OF THE WARNING
-                                const fsPromises = require('fs').promises;
-                                const { BinaryInfo, encodeWAM } = require('@whiskeysockets/baileys'); // Ensure these are imported if needed
-
-                                const {
-                                    header: {
-                                        wamVersion,
-                                        eventSequenceNumber,
-                                    },
-                                    events,
-                                } = JSON.parse(await fsPromises.readFile("./boot_analytics_test.json", "utf-8"))
-
-                                const binaryInfo = new BinaryInfo({
-                                    protocolVersion: wamVersion,
-                                    sequence: eventSequenceNumber,
-                                    events: events
-                                })
-
-                                const buffer = encodeWAM(binaryInfo);
-                                const result = await this.sock.sendWAMBuffer(buffer)
-                                logger.info('WAM Buffer sent, result:', result);
-                            } catch (err) {
-                                logger.error('❌ Error sending WAM example:', err);
-                            }
-                        }
-                    } else if(connection === 'connecting') {
-                        logger.info('🔄 Connecting to WhatsApp...');
-                    }
-                }
-
-                // --- Credentials Update (from example) ---
-                if(events['creds.update']) {
-                    try {
-                        await this.authState.saveCreds();
-                    } catch (error) {
-                        logger.error('❌ Error saving credentials:', error);
-                    }
-                }
-
-                // --- Other Events from Example ---
-                if(events['labels.association']) {
-                    logger.debug('🏷️ Labels association:', events['labels.association']);
-                }
-
-                if(events['labels.edit']) {
-                    logger.debug('🏷️ Labels edit:', events['labels.edit']);
-                }
-
-                if(events.call) {
-                    logger.info('📞 Received call event:', events.call);
-                }
-
-                // --- History Received (from example) ---
-                if(events['messaging-history.set']) {
-                    const { chats, contacts, messages, isLatest, progress, syncType } = events['messaging-history.set'];
-                    if (syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
-                        logger.info('received on-demand history sync, messages=', messages.length);
-                    }
-                    logger.info(`📚 Received history: ${chats.length} chats, ${contacts.length} contacts, ${messages.length} msgs (is latest: ${isLatest}, progress: ${progress}%), type: ${syncType}`);
-                }
-
-                // --- Message Handling (adapted from example) ---
-                if (events['messages.upsert']) {
-                    const upsert = events['messages.upsert'];
-                    logger.debug('📥 Received messages upsert:', JSON.stringify(upsert, null, 2));
-
-                    if (!!upsert.requestId) {
-                        logger.info("🔁 Placeholder message received for request of id=" + upsert.requestId, upsert);
-                    }
-
-                    if (upsert.type === 'notify') {
-                        for (const msg of upsert.messages) {
-                            const normalizedContent = msg.message && Object.values(msg.message)[0]; // Normalize message content
-                            const text = (normalizedContent?.text || normalizedContent?.caption || msg.message?.conversation || '').trim();
-
-                            // --- Placeholder & On-Demand Sync from example ---
-                            if (text == "requestPlaceholder" && !upsert.requestId) {
-                                try {
-                                    const messageId = await this.sock.requestPlaceholderResend(msg.key);
-                                    logger.info('🔁 Requested placeholder resync, id=', messageId);
-                                } catch (err) {
-                                    logger.error('❌ Error requesting placeholder resend:', err);
-                                }
-                            }
-
-                            // go to an old chat and send this
-                            if (text == "onDemandHistSync") {
-                                try {
-                                    const messageId = await this.sock.fetchMessageHistory(50, msg.key, msg.messageTimestamp);
-                                    logger.info('🔁 Requested on-demand sync, id=', messageId);
-                                } catch (err) {
-                                    logger.error('❌ Error fetching on-demand history:', err);
-                                }
-                            }
-
-                            // --- Reply Logic (adapted from example) ---
-                            if (!msg.key.fromMe && doReplies && !isJidNewsletter(msg.key?.remoteJid)) {
-                                logger.info('💬 Replying to', msg.key.remoteJid);
-                                try {
-                                    await this.sock.readMessages([msg.key]); // Mark as read
-                                    // Simulate typing like in example helper
-                                    await this.sock.presenceSubscribe(msg.key.remoteJid);
-                                    await this.sleep(500);
-                                    await this.sock.sendPresenceUpdate('composing', msg.key.remoteJid);
-                                    await this.sleep(2000);
-                                    await this.sock.sendPresenceUpdate('paused', msg.key.remoteJid);
-
-                                    await this.sock.sendMessage(msg.key.remoteJid, { text: 'Hello there from HyperWa!' });
-                                } catch (err) {
-                                    logger.error('❌ Error replying:', err);
-                                }
-                            }
-
-                            // --- Pass to your existing MessageHandler for other commands/modules ---
-                            // This integrates the example's direct handling with your modular system
-                            try {
-                                await this.messageHandler.handleMessages({ messages: [msg] }); // Wrap single msg in array
-                            } catch (handlerError) {
-                                logger.error('❌ Error in MessageHandler:', handlerError);
-                            }
-                        }
-                    }
-                }
-
-                // --- Messages Update (from example) ---
-                if(events['messages.update']) {
-                    logger.debug('📝 Message updates:', JSON.stringify(events['messages.update'], null, 2));
-                    // Example includes poll update handling - you might want to adapt this
-                    // for(const { key, update } of events['messages.update']) {
-                    //     if(update.pollUpdates) {
-                    //         // Handle poll updates if needed
-                    //     }
-                    // }
-                }
-
-                if(events['message-receipt.update']) {
-                    logger.debug('📬 Message receipt update:', events['message-receipt.update']);
-                }
-
-                if(events['messages.reaction']) {
-                    logger.debug('❤️ Message reaction:', events['messages.reaction']);
-                }
-
-                 if(events['presence.update']) {
-                    logger.debug('👤 Presence update:', events['presence.update']);
-                }
-
-                if(events['chats.update']) {
-                    logger.debug('💬 Chats update:', events['chats.update']);
-                }
-
-                if(events['contacts.update']) {
-                    for(const contact of events['contacts.update']) {
-                        if(typeof contact.imgUrl !== 'undefined') {
-                            try {
-                                const newUrl = contact.imgUrl === null
-                                    ? null
-                                    : await this.sock.profilePictureUrl(contact.id).catch(() => null);
-                                logger.info(`🖼️ Contact ${contact.id} has a new profile pic: ${newUrl}`);
-                            } catch (err) {
-                                logger.warn(`⚠️ Error getting profile picture for ${contact.id}:`, err.message);
-                            }
-                        }
-                    }
-                }
-
-                if(events['chats.delete']) {
-                    logger.info('🗑️ Chats deleted:', events['chats.delete']);
+                    logger.error('❌ Error requesting pairing code:', err.message || err);
+                    // Don't exit, let the connection attempt continue or fail naturally
+                    // Maybe it will fall back to QR if pairing fails?
                 }
             }
-        );
+        }
+
+        if (qr && !usePairingCode) { // Only show QR if not using pairing code
+            logger.info('📱 WhatsApp QR code generated');
+            qrcode.generate(qr, { small: true });
+            if (this.telegramBridge) {
+                try {
+                    await this.telegramBridge.sendQRCode(qr);
+                } catch (error) {
+                    logger.warn('⚠️ TelegramBridge failed to send QR:', error.message);
+                }
+            }
+            this.qrCodeSent = true; // Mark QR as sent
+        }
+
+        if (connection === 'close') {
+            // Reset the flag on connection close to allow new pairing/QR on reconnect
+            this.qrCodeSent = false;
+            await this.handleConnectionClose(lastDisconnect);
+        } else if (connection === 'open') {
+            // Reset the flag on successful connection
+            this.qrCodeSent = false;
+            await this.onConnectionOpen();
+        } else if (connection === 'connecting') {
+            logger.info('🔄 Connecting to WhatsApp...');
+            // Reset the flag at the start of a new connection attempt
+            // It will be set again if pairing code is requested or QR is generated
+            // this.qrCodeSent = false; // Actually, better to set it just before requesting pairing/QR
+        }
     }
 
-    // --- Removed processMessageQueue method ---
+    async handleConnectionClose(lastDisconnect) {
+        const statusCode = lastDisconnect?.error?.output?.statusCode || 0;
+        const errorMessage = lastDisconnect?.error?.message || 'Unknown error';
+        logger.warn(`🔌 Connection closed. Status: ${statusCode}, Error: ${errorMessage}`);
+        // Handle different disconnect reasons
+        switch (statusCode) {
+            case DisconnectReason.loggedOut:
+                logger.error('❌ Device logged out. Please delete auth_info and restart.');
+                await this.clearAuthState();
+                process.exit(1);
+                break;
+            case DisconnectReason.deviceLoggedOut:
+                logger.error('❌ Device logged out from another location.');
+                await this.clearAuthState();
+                process.exit(1);
+                break;
+            case DisconnectReason.connectionClosed:
+            case DisconnectReason.connectionLost:
+            case DisconnectReason.connectionReplaced:
+            case DisconnectReason.timedOut:
+                if (!this.isShuttingDown) {
+                    await this.scheduleReconnect();
+                }
+                break;
+            case DisconnectReason.restartRequired:
+                logger.info('🔄 Restart required, restarting...');
+                if (!this.isShuttingDown) {
+                    await this.scheduleReconnect();
+                }
+                break;
+            default:
+                if (!this.isShuttingDown) {
+                    await this.scheduleReconnect();
+                }
+        }
+    }
 
-    // --- Removed handleConnectionUpdate, handleConnectionClose, scheduleReconnect, handleConnectionError methods ---
-    // Their logic is now incorporated into the sock.ev.process handler
+    async scheduleReconnect() {
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            logger.error(`❌ Max reconnection attempts (${this.maxReconnectAttempts}) reached. Exiting.`);
+            process.exit(1);
+        }
+        this.reconnectAttempts++;
+        const delay = Math.min(this.reconnectDelay * this.reconnectAttempts, 30000); // Max 30 seconds
+        logger.warn(`🔄 Scheduling reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
+        setTimeout(async () => {
+            if (!this.isShuttingDown) {
+                try {
+                    await this.startWhatsApp();
+                } catch (error) {
+                    logger.error('❌ Reconnection failed:', error);
+                }
+            }
+        }, delay);
+    }
+
+    async handleConnectionError(error) {
+        logger.error('❌ Connection error:', error);
+        if (!this.isShuttingDown) {
+            await this.scheduleReconnect();
+        }
+    }
 
     async clearAuthState() {
         if (this.useMongoAuth) {
@@ -509,7 +491,7 @@ class HyperWaBot {
     }
 
     async onConnectionOpen() {
-        // logger.info(`✅ Connected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`); // Moved to event handler
+        logger.info(`✅ Connected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`);
         // Save store after successful connection
         this.store.saveToFile();
         if (!config.get('bot.owner') && this.sock.user) {
@@ -537,18 +519,13 @@ class HyperWaBot {
         const owner = config.get('bot.owner');
         if (!owner) return;
         const authMethod = this.useMongoAuth ? 'MongoDB' : 'File-based';
-        const startupMessage = `🚀 *${config.get('bot.name')} v${config.get('bot.version')}* is now online!
-` +
-                              `🔥 *HyperWa Features Active:*
-` +
-                              `• 📱 Modular Architecture
-` +
-                              `• 🔐 Auth Method: ${authMethod}
-` +
-                              `• 🤖 Telegram Bridge: ${config.get('telegram.enabled') ? '✅' : '❌'}
-` +
-                              `• 🔧 Custom Modules: ${config.get('features.customModules') ? '✅' : '❌'}
-` +
+        const startupMessage = `🚀 *${config.get('bot.name')} v${config.get('bot.version')}* is now online!\n` +
+                              `🔥 *HyperWa Features Active:*\n` +
+                              `• 📱 Modular Architecture\n` +
+                              `• 🔐 Auth Method: ${authMethod}\n` +
+                              `• 🔐 Login Mode: ${usePairingCode ? '🔢 Pairing Code' : '📱 QR Code'}\n` + // Added login mode info
+                              `• 🤖 Telegram Bridge: ${config.get('telegram.enabled') ? '✅' : '❌'}\n` +
+                              `• 🔧 Custom Modules: ${config.get('features.customModules') ? '✅' : '❌'}\n` +
                               `Type *${config.get('bot.prefix')}help* for available commands!`;
         try {
             await this.sendMessage(owner, { text: startupMessage });
