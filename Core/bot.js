@@ -10,6 +10,7 @@ const { connectDb } = require('../utils/db');
 const ModuleLoader = require('./module-loader');
 const { useMongoAuthState } = require('../utils/mongoAuthState');
 const { makeInMemoryStore } = require('./store');
+const AdvancedFeatures = require('./advanced-features');
 
 class HyperWaBot {
     constructor() {
@@ -20,6 +21,7 @@ class HyperWaBot {
         this.isShuttingDown = false;
         this.db = null;
         this.moduleLoader = new ModuleLoader(this);
+        this.advancedFeatures = new AdvancedFeatures(this);
         this.qrCodeSent = false;
         this.useMongoAuth = config.get('auth.useMongoAuth', false);
         
@@ -74,6 +76,13 @@ class HyperWaBot {
         });
     }
 
+    // Cleanup advanced features
+    startCleanupTimer() {
+        setInterval(() => {
+            this.advancedFeatures.cleanup();
+        }, 60 * 60 * 1000); // Every hour
+    }
+
     async initialize() {
         logger.info('🔧 Initializing HyperWa Userbot...');
 
@@ -89,6 +98,9 @@ class HyperWaBot {
             
             // Start WhatsApp connection
             await this.startWhatsApp();
+
+            // Start cleanup timer
+            this.startCleanupTimer();
 
             logger.info('✅ HyperWa Userbot initialized successfully!');
         } catch (error) {
