@@ -1,16 +1,7 @@
-const { Boom } = require('@hapi/boom');
-const NodeCache = require('node-cache');
-const { 
-    makeWASocket,
-    useMultiFileAuthState,
-    DisconnectReason,
-    fetchLatestBaileysVersion,
-    makeCacheableSignalKeyStore
-} = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs-extra');
 const path = require('path');
-const { makeInMemoryStore } = require('./store');
 
 const config = require('../config');
 const logger = require('./logger');
@@ -18,17 +9,12 @@ const MessageHandler = require('./message-handler');
 const { connectDb } = require('../utils/db');
 const ModuleLoader = require('./module-loader');
 const { useMongoAuthState } = require('../utils/mongoAuthState');
+const { makeInMemoryStore } = require('./store');
 
 class HyperWaBot {
     constructor() {
         this.sock = null;
         this.authPath = './auth_info';
-        this.msgRetryCounterCache = new NodeCache();
-        this.store = makeInMemoryStore({ 
-            logger: logger.child({ module: 'store' }),
-            filePath: config.get('store.path', './data/store.json'),
-            maxMessagesPerChat: config.get('store.maxMessages', 1000)
-        });
         this.messageHandler = new MessageHandler(this);
         this.telegramBridge = null;
         this.isShuttingDown = false;
@@ -36,49 +22,141 @@ class HyperWaBot {
         this.moduleLoader = new ModuleLoader(this);
         this.qrCodeSent = false;
         this.useMongoAuth = config.get('auth.useMongoAuth', false);
+        
+        // Initialize store
+        this.store = makeInMemoryStore({
+            logger: logger.child({ module: 'store' }),
+            filePath: './store.json',
+            autoSaveInterval: 30000 // Auto-save every 30 seconds
+        });
+        
+        // Stability improvements
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 10;
+        this.reconnectDelay = 5000;
+        this.connectionTimeout = null;
+        this.isConnecting = false;
+        this.messageQueue = [];
+        this.isProcessingMessages = false;
+        
+        // Graceful shutdown handling
+        this.setupGracefulShutdown();
+        
+        // Load existing store data
+        this.store.loadFromFile();
     }
 
     async initialize() {
         logger.info('🔧 Initializing HyperWa Userbot...');
 
         try {
-            this.db = await connectDb();
-            logger.info('✅ Database connected successfully!');
-        } catch (error) {
-            logger.error('❌ Failed to connect to database:', error);
-            process.exit(1);
-        }
+            // Database connection with retry logic
+            await this.initializeDatabase();
+            
+            // Initialize Telegram bridge if enabled
+            await this.initializeTelegramBridge();
+            
+            // Load modules
+            await this.moduleLoader.loadModules();
+            
+            // Start WhatsApp connection
+            await this.startWhatsApp();
 
-        if (config.get('telegram.enabled')) {
+            logger.info('✅ HyperWa Userbot initialized successfully!');
+        } catch (error) {
+            logger.error('❌ Failed to initialize bot:', error);
+            throw error;
+        }
+    }
+
+    async initializeDatabase() {
+        let retries = 3;
+        while (retries > 0) {
             try {
-                const TelegramBridge = require('../telegram/bridge');
-                this.telegramBridge = new TelegramBridge(this);
-                await this.telegramBridge.initialize();
-                logger.info('✅ Telegram bridge initialized');
+                this.db = await connectDb();
+                logger.info('✅ Database connected successfully!');
+                return;
             } catch (error) {
-                logger.warn('⚠️ Telegram bridge failed to initialize:', error.message);
-                this.telegramBridge = null;
+                retries--;
+                logger.error(`❌ Database connection failed (${3 - retries}/3):`, error.message);
+                if (retries === 0) {
+                    throw new Error('Failed to connect to database after 3 attempts');
+                }
+                await this.sleep(2000);
             }
         }
+    }
 
-        await this.moduleLoader.loadModules();
-        await this.startWhatsApp();
+    async initializeTelegramBridge() {
+        if (!config.get('telegram.enabled')) return;
 
-        logger.info('✅ HyperWa Userbot initialized successfully!');
+        try {
+            const TelegramBridge = require('../watg-bridge/bridge');
+            this.telegramBridge = new TelegramBridge(this);
+            await this.telegramBridge.initialize();
+            logger.info('✅ Telegram bridge initialized');
+
+            try {
+                await this.telegramBridge.sendStartMessage();
+            } catch (err) {
+                logger.warn('⚠️ Failed to send start message via Telegram:', err.message);
+            }
+        } catch (error) {
+            logger.warn('⚠️ Telegram bridge failed to initialize:', error.message);
+            this.telegramBridge = null;
+        }
     }
 
     async startWhatsApp() {
-        let state, saveCreds;
-
-        // Clean up existing socket if present
-        if (this.sock) {
-            logger.info('🧹 Cleaning up existing WhatsApp socket');
-            this.sock.ev.removeAllListeners();
-            await this.sock.end();
-            this.sock = null;
+        if (this.isConnecting) {
+            logger.warn('⚠️ Already attempting to connect, skipping...');
+            return;
         }
 
-        // Choose auth method based on configuration
+        this.isConnecting = true;
+        
+        try {
+            await this.cleanupExistingConnection();
+            await this.initializeAuthState();
+            await this.createSocket();
+            await this.waitForConnection();
+            
+            this.reconnectAttempts = 0; // Reset on successful connection
+            this.isConnecting = false;
+            
+        } catch (error) {
+            this.isConnecting = false;
+            await this.handleConnectionError(error);
+        }
+    }
+
+    async cleanupExistingConnection() {
+        if (this.sock) {
+            logger.info('🧹 Cleaning up existing WhatsApp socket');
+            
+            try {
+                // Remove all listeners to prevent memory leaks
+                this.sock.ev.removeAllListeners();
+                
+                // Clear any existing timeout
+                if (this.connectionTimeout) {
+                    clearTimeout(this.connectionTimeout);
+                    this.connectionTimeout = null;
+                }
+                
+                // Close socket gracefully
+                await this.sock.end();
+            } catch (error) {
+                logger.warn('⚠️ Error during socket cleanup:', error.message);
+            } finally {
+                this.sock = null;
+            }
+        }
+    }
+
+    async initializeAuthState() {
+        let state, saveCreds;
+
         if (this.useMongoAuth) {
             logger.info('🔧 Using MongoDB auth state...');
             try {
@@ -93,90 +171,265 @@ class HyperWaBot {
             ({ state, saveCreds } = await useMultiFileAuthState(this.authPath));
         }
 
+        this.authState = { state, saveCreds };
+    }
+
+    async createSocket() {
         const { version } = await fetchLatestBaileysVersion();
 
+        this.sock = makeWASocket({
+            auth: this.authState.state,
+            version,
+            printQRInTerminal: false,
+            logger: logger.child({ module: 'baileys' }),
+            getMessage: async (key) => {
+                // Try to get message from store first
+                try {
+                    const message = this.store.loadMessage(key.remoteJid, key.id);
+                    if (message) {
+                        return message.message || { conversation: 'Message found but content unavailable' };
+                    }
+                    return { conversation: 'Message not found in store' };
+                } catch (error) {
+                    logger.warn('Error retrieving message from store:', error);
+                    return { conversation: 'Error retrieving message' };
+                }
+            },
+            browser: ['HyperWa', 'Chrome', '3.0'],
+            // Add connection options for stability
+            connectTimeoutMs: 60000,
+            defaultQueryTimeoutMs: 60000,
+            keepAliveIntervalMs: 30000,
+            // Enable message retry
+            retryRequestDelayMs: 250,
+            maxMsgRetryCount: 5,
+        });
+
+        // Bind store to socket events
+        this.store.bind(this.sock.ev);
+        
+        this.setupEventHandlers();
+    }
+
+    async waitForConnection() {
+        return new Promise((resolve, reject) => {
+            this.connectionTimeout = setTimeout(() => {
+                if (!this.sock?.user) {
+                    logger.warn('❌ Connection timed out after 60 seconds');
+                    reject(new Error('Connection timeout'));
+                }
+            }, 60000);
+
+            const connectionHandler = (update) => {
+                if (update.connection === 'open') {
+                    if (this.connectionTimeout) {
+                        clearTimeout(this.connectionTimeout);
+                        this.connectionTimeout = null;
+                    }
+                    this.sock.ev.off('connection.update', connectionHandler);
+                    resolve();
+                }
+            };
+
+            this.sock.ev.on('connection.update', connectionHandler);
+        });
+    }
+
+    setupEventHandlers() {
+        // Connection update handler with better error handling
+        this.sock.ev.on('connection.update', async (update) => {
+            try {
+                await this.handleConnectionUpdate(update);
+            } catch (error) {
+                logger.error('❌ Error in connection update handler:', error);
+            }
+        });
+
+        // Credentials update handler with error handling
+        this.sock.ev.on('creds.update', async () => {
+            try {
+                await this.authState.saveCreds();
+            } catch (error) {
+                logger.error('❌ Error saving credentials:', error);
+            }
+        });
+
+        // Message handler with queue system
+        this.sock.ev.on('messages.upsert', async (messageUpdate) => {
+            try {
+                // Add messages to queue for processing
+                this.messageQueue.push(messageUpdate);
+                await this.processMessageQueue();
+            } catch (error) {
+                logger.error('❌ Error handling message upsert:', error);
+            }
+        });
+
+        // Add other event handlers with error wrapping
+        this.sock.ev.on('messages.update', async (updates) => {
+            try {
+                // Handle message updates (read receipts, etc.)
+                logger.debug('📝 Message updates received:', updates.length);
+            } catch (error) {
+                logger.error('❌ Error handling message updates:', error);
+            }
+        });
+
+        this.sock.ev.on('presence.update', async (update) => {
+            try {
+                // Handle presence updates
+                logger.debug('👤 Presence update:', update.id);
+            } catch (error) {
+                logger.error('❌ Error handling presence update:', error);
+            }
+        });
+    }
+
+    async processMessageQueue() {
+        if (this.isProcessingMessages || this.messageQueue.length === 0) {
+            return;
+        }
+
+        this.isProcessingMessages = true;
+
         try {
-            this.sock = makeWASocket({
-                auth: {
-                    creds: state.creds,
-                    keys: makeCacheableSignalKeyStore(state.keys, logger),
-                },
-                version,
-                printQRInTerminal: false, // We'll handle QR display ourselves
-                logger: logger.child({ module: 'baileys' }),
-                getMessage: async (key) => ({ conversation: 'Message not found' }),
-                browser: ['HyperWa', 'Chrome', '3.0'],
-                msgRetryCounterCache: this.msgRetryCounterCache,
-                generateHighQualityLinkPreview: true,
-            });
-
-            // Bind store to socket events
-            this.store.bind(this.sock.ev);
-
-            // Setup connection promise
-            const connectionPromise = new Promise((resolve, reject) => {
-                const connectionTimeout = setTimeout(() => {
-                    if (!this.sock.user) {
-                        logger.warn('❌ QR code scan timed out after 30 seconds');
-                        reject(new Error('QR code scan timed out'));
-                    }
-                }, 30000);
-
-                this.sock.ev.on('connection.update', update => {
-                    const { connection, qr } = update;
-                    
-                    // QR Code Handling
-                    if (qr && !this.qrCodeSent) {
-                        this.qrCodeSent = true;
-                        logger.info('📱 WhatsApp QR code generated');
-                        qrcode.generate(qr, { small: true });
-                        
-                        // Send to Telegram if available
-                        if (this.telegramBridge) {
-                            try {
-                                this.telegramBridge.sendQRCode(qr);
-                            } catch (error) {
-                                logger.warn('⚠️ TelegramBridge failed to send QR:', error.message);
-                            }
-                        }
-                    }
-                    
-                    // Connection Status
-                    if (connection === 'open') {
-                        clearTimeout(connectionTimeout);
-                        resolve();
-                    } else if (connection === 'close') {
-                        const lastDisconnect = update.lastDisconnect;
-                        const statusCode = lastDisconnect?.error?.output?.statusCode || 0;
-                        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-
-                        if (shouldReconnect && !this.isShuttingDown) {
-                            logger.warn('🔄 Connection closed, reconnecting...');
-                            setTimeout(() => this.startWhatsApp(), 5000);
-                        } else {
-                            logger.error('❌ Connection closed permanently. Please restart.');
-                            process.exit(1);
-                        }
-                    }
-                });
-            });
-
-            // Credential updates
-            this.sock.ev.on('creds.update', saveCreds);
-            
-            // Message handling
-            this.sock.ev.on('messages.upsert', this.messageHandler.handleMessages.bind(this.messageHandler));
-
-            await connectionPromise;
-            await this.onConnectionOpen();
+            while (this.messageQueue.length > 0) {
+                const messageUpdate = this.messageQueue.shift();
+                await this.messageHandler.handleMessages(messageUpdate);
+                
+                // Small delay to prevent overwhelming the system
+                await this.sleep(10);
+            }
         } catch (error) {
-            logger.error('❌ Failed to initialize WhatsApp socket:', error);
-            setTimeout(() => this.startWhatsApp(), 5000);
+            logger.error('❌ Error processing message queue:', error);
+        } finally {
+            this.isProcessingMessages = false;
+        }
+    }
+
+    async handleConnectionUpdate(update) {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+            logger.info('📱 WhatsApp QR code generated');
+            qrcode.generate(qr, { small: true });
+
+            if (this.telegramBridge) {
+                try {
+                    await this.telegramBridge.sendQRCode(qr);
+                } catch (error) {
+                    logger.warn('⚠️ TelegramBridge failed to send QR:', error.message);
+                }
+            }
+        }
+
+        if (connection === 'close') {
+            await this.handleConnectionClose(lastDisconnect);
+        } else if (connection === 'open') {
+            await this.onConnectionOpen();
+        } else if (connection === 'connecting') {
+            logger.info('🔄 Connecting to WhatsApp...');
+        }
+    }
+
+    async handleConnectionClose(lastDisconnect) {
+        const statusCode = lastDisconnect?.error?.output?.statusCode || 0;
+        const errorMessage = lastDisconnect?.error?.message || 'Unknown error';
+        
+        logger.warn(`🔌 Connection closed. Status: ${statusCode}, Error: ${errorMessage}`);
+
+        // Handle different disconnect reasons
+        switch (statusCode) {
+            case DisconnectReason.loggedOut:
+                logger.error('❌ Device logged out. Please delete auth_info and restart.');
+                await this.clearAuthState();
+                process.exit(1);
+                break;
+
+            case DisconnectReason.deviceLoggedOut:
+                logger.error('❌ Device logged out from another location.');
+                await this.clearAuthState();
+                process.exit(1);
+                break;
+
+            case DisconnectReason.connectionClosed:
+            case DisconnectReason.connectionLost:
+            case DisconnectReason.connectionReplaced:
+            case DisconnectReason.timedOut:
+                if (!this.isShuttingDown) {
+                    await this.scheduleReconnect();
+                }
+                break;
+
+            case DisconnectReason.restartRequired:
+                logger.info('🔄 Restart required, restarting...');
+                if (!this.isShuttingDown) {
+                    await this.scheduleReconnect();
+                }
+                break;
+
+            default:
+                if (!this.isShuttingDown) {
+                    await this.scheduleReconnect();
+                }
+        }
+    }
+
+    async scheduleReconnect() {
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            logger.error(`❌ Max reconnection attempts (${this.maxReconnectAttempts}) reached. Exiting.`);
+            process.exit(1);
+        }
+
+        this.reconnectAttempts++;
+        const delay = Math.min(this.reconnectDelay * this.reconnectAttempts, 30000); // Max 30 seconds
+        
+        logger.warn(`🔄 Scheduling reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
+        
+        setTimeout(async () => {
+            if (!this.isShuttingDown) {
+                try {
+                    await this.startWhatsApp();
+                } catch (error) {
+                    logger.error('❌ Reconnection failed:', error);
+                }
+            }
+        }, delay);
+    }
+
+    async handleConnectionError(error) {
+        logger.error('❌ Connection error:', error);
+        
+        if (!this.isShuttingDown) {
+            await this.scheduleReconnect();
+        }
+    }
+
+    async clearAuthState() {
+        if (this.useMongoAuth) {
+            try {
+                const db = await connectDb();
+                const coll = db.collection("auth");
+                await coll.deleteOne({ _id: "session" });
+                logger.info('🗑️ MongoDB auth session cleared');
+            } catch (error) {
+                logger.error('❌ Failed to clear MongoDB auth session:', error);
+            }
+        } else {
+            try {
+                await fs.remove(this.authPath);
+                logger.info('🗑️ File-based auth session cleared');
+            } catch (error) {
+                logger.error('❌ Failed to clear file-based auth session:', error);
+            }
         }
     }
 
     async onConnectionOpen() {
         logger.info(`✅ Connected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`);
+
+        // Save store after successful connection
+        this.store.saveToFile();
 
         if (!config.get('bot.owner') && this.sock.user) {
             config.set('bot.owner', this.sock.user.id);
@@ -186,13 +439,20 @@ class HyperWaBot {
         if (this.telegramBridge) {
             try {
                 await this.telegramBridge.setupWhatsAppHandlers();
-                await this.telegramBridge.syncWhatsAppConnection();
             } catch (err) {
-                logger.warn('⚠️ Telegram setup error:', err.message);
+                logger.warn('⚠️ Failed to setup Telegram WhatsApp handlers:', err.message);
             }
         }
 
         await this.sendStartupMessage();
+
+        if (this.telegramBridge) {
+            try {
+                await this.telegramBridge.syncWhatsAppConnection();
+            } catch (err) {
+                logger.warn('⚠️ Telegram sync error:', err.message);
+            }
+        }
     }
 
     async sendStartupMessage() {
@@ -209,8 +469,10 @@ class HyperWaBot {
                               `Type *${config.get('bot.prefix')}help* for available commands!`;
 
         try {
-            await this.sock.sendMessage(owner, { text: startupMessage });
-        } catch {}
+            await this.sendMessage(owner, { text: startupMessage });
+        } catch (error) {
+            logger.warn('⚠️ Failed to send startup message:', error.message);
+        }
 
         if (this.telegramBridge) {
             try {
@@ -232,13 +494,26 @@ class HyperWaBot {
         if (!this.sock) {
             throw new Error('WhatsApp socket not initialized');
         }
-        return await this.sock.sendMessage(jid, content);
+        
+        try {
+            return await this.sock.sendMessage(jid, content);
+        } catch (error) {
+            logger.error('❌ Failed to send message:', error);
+            throw error;
+        }
     }
 
     async shutdown() {
         logger.info('🛑 Shutting down HyperWa Userbot...');
         this.isShuttingDown = true;
 
+        // Clear any pending timeouts
+        if (this.connectionTimeout) {
+            clearTimeout(this.connectionTimeout);
+            this.connectionTimeout = null;
+        }
+
+        // Shutdown Telegram bridge
         if (this.telegramBridge) {
             try {
                 await this.telegramBridge.shutdown();
@@ -247,14 +522,40 @@ class HyperWaBot {
             }
         }
 
+        // Close WhatsApp socket
         if (this.sock) {
-            await this.sock.end();
+            try {
+                this.sock.ev.removeAllListeners();
+                await this.sock.end();
+            } catch (error) {
+                logger.warn('⚠️ Error during socket shutdown:', error.message);
+            }
+        }
+
+        // Close database connection
+        if (this.db) {
+            try {
+                await this.db.close();
+            } catch (error) {
+                logger.warn('⚠️ Error closing database:', error.message);
+            }
         }
 
         // Cleanup store
-        this.store.cleanup();
+        if (this.store) {
+            try {
+                this.store.cleanup();
+            } catch (error) {
+                logger.warn('⚠️ Error during store cleanup:', error.message);
+            }
+        }
 
         logger.info('✅ HyperWa Userbot shutdown complete');
+    }
+
+    // Utility function for delays
+    sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 }
 
