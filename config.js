@@ -11,7 +11,8 @@ class Config {
             },
 
             auth: {
-                useMongoAuth: true // Set to false for file-based auth
+                useMongoAuth: true ,
+                usePairingCode: false
             },
 
             admins: [
