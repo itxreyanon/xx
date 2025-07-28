@@ -74,7 +74,6 @@ async startWhatsApp() {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
-    // Clean up existing socket if present
     if (this.sock) {
         logger.info('🧹 Cleaning up existing WhatsApp socket');
         this.sock.ev.removeAllListeners();
@@ -82,7 +81,6 @@ async startWhatsApp() {
         this.sock = null;
     }
 
-    // Choose auth method based on configuration
     if (this.useMongoAuth) {
         logger.info('🔧 Using MongoDB auth state...');
         try {
@@ -114,10 +112,8 @@ async startWhatsApp() {
             generateHighQualityLinkPreview: true,
         });
 
-        // Bind store to socket events
         this.store.bind(this.sock.ev);
 
-        // Setup connection promise
         const connectionPromise = new Promise(async (resolve, reject) => {
             const connectionTimeout = setTimeout(() => {
                 if (!this.sock.user) {
@@ -129,7 +125,6 @@ async startWhatsApp() {
             this.sock.ev.on('connection.update', async (update) => {
                 const { connection, qr, lastDisconnect } = update;
 
-                // Handle QR Code
                 if (qr && config.get('auth.method') === 'qr') {
                     if (!this.qrCodeSent) {
                         this.qrCodeSent = true;
@@ -146,11 +141,11 @@ async startWhatsApp() {
                     }
                 }
 
-                // Handle Pairing Code
                 if (connection === 'connecting' && !this.sock.user && config.get('auth.method') === 'pairing') {
                     if (!this.qrCodeSent) {
-                        this.qrCodeSent = true; // Prevent multiple attempts
-                        const phoneNumber = config.get('auth.pairing.phoneNumber');
+                        this.qrCodeSent = true;
+
+                        const phoneNumber = config.get('auth.phoneNumber');
                         if (!phoneNumber) {
                             logger.error('❌ No phone number provided for pairing code');
                             return reject(new Error('Phone number missing for pairing'));
@@ -172,20 +167,18 @@ async startWhatsApp() {
                         } catch (err) {
                             logger.error('❌ Failed to request pairing code:', err.message);
                             logger.info('🔄 Falling back to QR code...');
-                            config.set('auth.method', 'qr'); // fallback
-                            this.qrCodeSent = false; // reset so QR can show
+                            config.set('auth.method', 'qr');
+                            this.qrCodeSent = false;
                         }
                     }
                 }
 
-                // Connection Open
                 if (connection === 'open') {
                     clearTimeout(connectionTimeout);
-                    rl.close(); // Close readline
+                    rl.close();
                     resolve();
                 }
 
-                // Connection Close
                 if (connection === 'close') {
                     const statusCode = lastDisconnect?.error?.output?.statusCode || 0;
                     const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
@@ -200,13 +193,8 @@ async startWhatsApp() {
             });
         });
 
-        // Save credentials when updated
         this.sock.ev.on('creds.update', saveCreds);
-
-        // Message handling
         this.sock.ev.on('messages.upsert', this.messageHandler.handleMessages.bind(this.messageHandler));
-
-        // Wait for connection
         await connectionPromise;
         await this.onConnectionOpen();
 
