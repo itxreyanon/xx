@@ -160,38 +160,39 @@ class HyperWaBot {
         this.store.bind(this.sock.ev);
 
         // Pairing code support
+// Pairing code support
 if (this.usePairingCode && !state.creds.registered) {
     try {
-        const phoneNumber = await askQuestion('📞 Enter WhatsApp number (e.g., +1234567890): ')
+        const configuredNumber = config.get('auth.phoneNumber', '').trim();
 
-        const cleanedNumber = phoneNumber.trim()
-
-        if (!/^\+\d{10,15}$/.test(cleanedNumber)) {
-            throw new Error('Invalid phone number format')
+        if (!/^\+\d{10,15}$/.test(configuredNumber)) {
+            logger.error('❌ Invalid or missing phone number in config (auth.phoneNumber)');
+            process.exit(1);
         }
 
-        logger.info(`📲 Requesting pairing code for ${cleanedNumber}...`)
-        const code = await this.sock.requestPairingCode(cleanedNumber)
+        logger.info(`📲 Requesting pairing code for ${configuredNumber}...`);
+        const code = await this.sock.requestPairingCode(configuredNumber);
 
-        console.log(`\n🔑 YOUR PAIRING CODE: ${code} 🔑\n`)
-        logger.info(`✅ Pairing code generated: ${code}`)
+        console.log(`\n🔑 YOUR PAIRING CODE: ${code} 🔑\n`);
+        logger.info(`✅ Pairing code generated: ${code}`);
 
         if (this.telegramBridge) {
             try {
-                await this.telegramBridge.sendMessage(`🔑 Code: \`${code}\``, { parse_mode: 'Markdown' })
+                await this.telegramBridge.sendMessage(`🔑 Code: \`${code}\``, { parse_mode: 'Markdown' });
             } catch (err) {
-                logger.warn('⚠️ Failed to send code to Telegram:', err.message)
+                logger.warn('⚠️ Failed to send code to Telegram:', err.message);
             }
         }
     } catch (err) {
         logger.error('❌ Failed to request pairing code:', {
             message: err.message,
             stack: err.stack
-        })
-        setTimeout(() => this.startWhatsApp(), 5000)
-        return // prevent continuing if pairing failed
+        });
+        setTimeout(() => this.startWhatsApp(), 5000);
+        return; // Prevent continuing if pairing failed
     }
 }
+
 
         // Process all events
         this.sock.ev.process(async (events) => {
