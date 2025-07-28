@@ -11,9 +11,9 @@ class Config {
             },
 
             auth: {
-                method: 'pairing',              // 'pairing' or 'qr'
+                method: 'pairing',              // or 'qr'
                 usePairingCode: true,
-                phoneNumber: '923075417411'     // Just number (no + or @)
+                phoneNumber: '923075417411'     // without + or @
             },
 
             admins: [
