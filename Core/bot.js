@@ -172,33 +172,38 @@ if (state?.creds) {
         this.store.bind(this.sock.ev);
 
         // Pairing code support
-if (this.usePairingCode && !this.sock.authState.creds.registered) {
-    try {
-        const phoneNumber = await question('Please enter your phone number (e.g., +1234567890):\n');
-        if (!phoneNumber || !/^\+\d{10,15}$/.test(phoneNumber)) {
-            logger.error('❌ Invalid phone number format. Please use international format (e.g., +1234567890)');
-            throw new Error('Invalid phone number format');
+let pairingCodeRequested = false;
+
+if (this.usePairingCode) {
+    const onCredsUpdate = async () => {
+        if (pairingCodeRequested) return;
+        pairingCodeRequested = true;
+        this.sock.ev.off('creds.update', onCredsUpdate);
+
+        if (this.sock.authState?.creds?.registered) {
+            logger.info('📱 Already registered, skipping pairing code');
+            return;
         }
-        logger.info(`Requesting pairing code for phone number: ${phoneNumber}`);
-        const code = await this.sock.requestPairingCode(phoneNumber);
-        logger.info(`✅ Pairing code generated: ${code}`);
-        console.log(`Your pairing code: ${code}`); // Display in terminal for clarity
-        if (this.telegramBridge) {
-            try {
-                await this.telegramBridge.sendMessage(`Your pairing code: ${code}`);
-                logger.info('✅ Pairing code sent to Telegram');
-            } catch (telegramError) {
-                logger.warn('⚠️ Failed to send pairing code to Telegram:', telegramError.message);
+
+        try {
+            const phoneNumber = await question('📞 Enter phone number (e.g., +1234567890): ').then(p => p.trim());
+            if (!/^\+\d{10,15}$/.test(phoneNumber)) {
+                throw new Error('Invalid format');
             }
+
+            const code = await this.sock.requestPairingCode(phoneNumber);
+            console.log(`\n🔑 Your pairing code: ${code}\n`);
+            logger.info(`✅ Pairing code: ${code}`);
+
+            if (this.telegramBridge) {
+                await this.telegramBridge.sendMessage(`🔑 Code: \`${code}\``, { parse_mode: 'Markdown' });
+            }
+        } catch (err) {
+            logger.error('❌ Pairing code failed:', err);
+            setTimeout(() => this.startWhatsApp(), 5000);
         }
-    } catch (pairingError) {
-        logger.error('❌ Failed to generate or process pairing code:', {
-            message: pairingError.message,
-            stack: pairingError.stack,
-            name: pairingError.name
-        });
-        throw pairingError; // Rethrow to trigger reconnect or exit
-    }
+    };
+    this.sock.ev.on('creds.update', onCredsUpdate);
 }
 
         // Process all events
