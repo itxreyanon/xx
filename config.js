@@ -1,3 +1,4 @@
+require('dotenv').config();
 class Config {
     constructor() {
         this.defaultConfig = {
@@ -6,18 +7,18 @@ class Config {
                 company: 'Dawium Technologies',
                 prefix: '.',
                 version: '2.0.0',
-                owner: '923417033005@s.whatsapp.net', // Include full JID
+                owner: process.env.BOT_OWNER || '923417033005@s.whatsapp.net',
                 clearAuthOnStart: false
             },
 
             auth: {
-                useMongoAuth: true // Set to false for file-based auth
+                useMongoAuth: true
             },
 
-            admins: [
+            admins: this.parseEnvArray('ADMINS', [
                 '923075417411',
                 '923334445555'
-            ],
+            ]),
 
             features: {
                 mode: 'public',
@@ -29,15 +30,15 @@ class Config {
             },
 
             mongo: {
-                uri: 'mongodb+srv://itxelijah07:ivp8FYGsbVfjQOkj@cluster0.wh25x.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0',
-                dbName: 'HyperArshman'
+                uri: process.env.MONGO_URI || '',
+                dbName: process.env.MONGO_DB_NAME || ''
             },
 
             telegram: {
                 enabled: true,
-                botToken: '8340169817:AAE3p5yc0uSg-FOZMirWVu9sj9x4Jp8CCug',
-                botPassword: '1122',
-                chatId: '-1002846269080',
+                botToken: process.env.TG_BOT_TOKEN || '',
+                botPassword: process.env.TG_BOT_PASSWORD || '',
+                chatId: process.env.TG_CHAT_ID || '',
                 logChannel: '-100000000000',
                 features: {
                     topics: true,
@@ -70,6 +71,7 @@ class Config {
         this.load();
     }
 
+    // Load config object
     load() {
         this.config = { ...this.defaultConfig };
         console.log('✅ Configuration loaded');
@@ -93,6 +95,11 @@ class Config {
     update(updates) {
         this.config = { ...this.config, ...updates };
         console.warn('⚠️ Config was updated in memory. Not persistent.');
+    }
+
+    parseEnvArray(key, fallback = []) {
+        const val = process.env[key];
+        return val ? val.split(',').map(item => item.trim()) : fallback;
     }
 }
 
