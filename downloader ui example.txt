@@ -1,0 +1,58 @@
+          `*亗 I N S T A G R A M*\n\n` +
+            `*› Usuario:* ${result.username || "-"}\n` +
+            `*› Fullname :* ${result.fullname || "-"}\n` +
+            `*› Likes :* ${ConvertMiles(result.likes) || "-"}\n` +
+            `*› Comentarios :* ${ConvertMiles(result.comments) || "-"}\n` +
+            `*› Publicado :* ${result.published || "-"}\n` +
+            `*› Follows :* ${ConvertMiles(result.followed) || "-"}\n` +
+            `*› Verificado :* ${result.is_verified ? "×" : "√"}\n` +
+            `*› Private :* ${result.is_private ? "×" : "√"}\n` +
+
+        `*亗 P I N T E R E S T — D O W N L O A D*\n\n` +
+        `*› Título :* ${rrrrrr.data.data.title}\n` +
+        `*› Comentarios:* ${rrrrrr.data.data.comments}\n` +
+        `*› Likes :* ${rrrrrr.data.data.likes}\n` +
+        `*› Autor :* ${rrrrrr.data.data.author_name}\n` +
+        `*› Usuario :* ${rrrrrr.data.data.username}\n` +
+        `*› Seguidores :* ${rrrrrr.data.data.followers}\n` +
+        `*› Publicado :* ${rrrrrr.data.data.upload}\n` +
+        `*› Profile :* ${rrrrrr.data.data.author_url}\n` +
+
+  `	╭  ✦ Apple Music Download ✦  ╮\n
+ *◦ Titulo :* ${songg_deliriuzzz_dltxt.data.data.name || "-"}
+ *◦ Artista :* ${songg_deliriuzzz_dltxt.data.data.artists || "-"}
+ *◦ Duracion :* ${songg_deliriuzzz_dltxt.data.data.type || "-"}
+ *◦ Duracion :* ${songg_deliriuzzz_dltxt.data.data.duration || "-"}
+ *◦ Enlace :* ${text.trim()}\n
+
+
+= `	╭  ✦ TikTok Download ✦  ╮\n
+ *◦ Nombre :* ${rtiktokdl.data.author.nickname}
+ *◦ Usuario :* ${rtiktokdl.data.author.username}
+ *◦ Duración :* ${rtiktokdl.data.duration}s
+ *◦ Reproducido :* ${ConvertMiles(rtiktokdl.data.repro)}
+ *◦ Likes :* ${ConvertMiles(rtiktokdl.data.like)}
+ *◦ Compartido :* ${ConvertMiles(rtiktokdl.data.share)}
+ *◦ Comentarios :* ${ConvertMiles(rtiktokdl.data.comment)}
+ *◦ Descargas :* ${ConvertMiles(rtiktokdl.data.download)}\n
+	╭  ✦ Music Info ✦  ╮\n
+ *◦ Música :* ${rtiktokdl.data.music.title}
+ *◦ Autor :* ${rtiktokdl.data.music.author}
+ *◦ Duración :* ${rtiktokdl.data.music.duration}\n
+
+ Spotify Download ✦  ╮\n
+ *◦ Titulo :* ${songg_deliriuzzz_dltxt.data.data.title || "-"}
+ *◦ Artista :* ${songg_deliriuzzz_dltxt.data.data.author || "-"}
+ *◦ Type :* ${songg_deliriuzzz_dltxt.data.data.type || "-"}
+ *◦ Enlace :* ${text.trim()}\n
+
+}, caption: `	╭  ✦ Soundcloud Download ✦  ╮
+
+ *◦ Titulo :* ${res.title}
+ *◦ Artista :* ${res.artist}
+ *◦ Genero :* ${res.genre}
+ *◦ Album :* ${res.album}
+ *◦ Play :* ${res.play}
+ *◦ Likes :* ${res.likes}
+ *◦ Comentarios :* ${res.comments}
+
