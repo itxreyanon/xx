@@ -1,52 +1,68 @@
 class Helpers {
-  static async smartErrorRespond(bot, originalMsg, options = {}) {
-    const {
-      actionFn = () => { throw new Error('No action provided'); },
-      processingText = '⏳ Processing...',
-      errorText = '❌ Something went wrong.'
-    } = options;
 
-    if (!bot?.sock?.sendMessage || !originalMsg?.key?.remoteJid) return;
+static async smartErrorRespond(bot, originalMsg, options = {}) {
+  const {
+    actionFn = () => { throw new Error('No action provided'); },
+    processingText = '⏳ Processing...',
+    errorText = '❌ Something went wrong.'
+  } = options;
 
-    const jid = originalMsg.key.remoteJid;
-    const isMe = originalMsg.key.fromMe === true;
-    let procKey = originalMsg.key;
+  if (!bot?.sock?.sendMessage || !originalMsg?.key?.remoteJid) return;
 
-    // Edit own message or send temporary processing message
-    if (isMe) {
-      await bot.sock.sendMessage(jid, {
-        text: processingText,
-        edit: originalMsg.key
-      });
-    } else {
-      const m = await bot.sock.sendMessage(jid, { text: processingText });
-      procKey = m.key;
-    }
+  const jid = originalMsg.key.remoteJid;
+  const isMe = originalMsg.key.fromMe === true;
+  let procKey = originalMsg.key;
 
-    try {
-      const result = await actionFn();
-
-      await bot.sock.sendMessage(jid, {
-        text: typeof result === 'string'
-          ? result
-          : JSON.stringify(result, null, 2),
-        edit: procKey
-      });
-
-      return result;
-
-    } catch (error) {
-      await bot.sock.sendMessage(jid, {
-        text: `${errorText}${error.message ? `\n\n🔍 ${error.message}` : ''}`,
-        edit: procKey
-      });
-
-      error._handledBySmartError = true;
-      throw error;
-    }
-
-
+  // Step 1: Show processing text
+  if (isMe) {
+    await bot.sock.sendMessage(jid, {
+      text: processingText,
+      edit: originalMsg.key
+    });
+  } else {
+    const m = await bot.sock.sendMessage(jid, { text: processingText });
+    procKey = m.key;
   }
+
+  try {
+    const result = await actionFn();
+
+    // Step 2: If result is media, send it separately
+    if (result && typeof result === 'object' && result.media) {
+      // Edit original message to caption
+      if (result.caption) {
+        await bot.sock.sendMessage(jid, {
+          text: result.caption,
+          edit: procKey
+        });
+      }
+
+      // Send media
+      await bot.sock.sendMessage(jid, result.media, { quoted: originalMsg });
+      return '';
+    }
+
+    // Step 3: Edit original message with final result
+    await bot.sock.sendMessage(jid, {
+      text: typeof result === 'string'
+        ? result
+        : JSON.stringify(result, null, 2),
+      edit: procKey
+    });
+
+    return result;
+
+  } catch (error) {
+    await bot.sock.sendMessage(jid, {
+      text: `${errorText}${error.message ? `\n\n🔍 ${error.message}` : ''}`,
+      edit: procKey
+    });
+
+    error._handledBySmartError = true;
+    throw error;
+  }
+}
+
 
   static async sendCommandResponse(bot, originalMsg, responseText) {
     await this.smartErrorRespond(bot, originalMsg, {
