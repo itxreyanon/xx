@@ -41,28 +41,6 @@ class DownloaderModule {
                 execute: this.downloadInstagram.bind(this)
             },
             {
-                name: 'ytmp3',
-                description: 'Downloads a YouTube video as an MP3 audio file.',
-                usage: '.ytmp3 <url>',
-                permissions: 'public',
-                ui: {
-                    processingText: '⏳ *Processing YouTube MP3 Download...*\n\n🔄 Working on your request...',
-                    errorText: '❌ *YouTube MP3 Download Failed*'
-                },
-                execute: this.downloadYouTubeMP3.bind(this)
-            },
-            {
-                name: 'ytmp4',
-                description: 'Downloads a YouTube video as an MP4 file.',
-                usage: '.ytmp4 <url>',
-                permissions: 'public',
-                ui: {
-                    processingText: '⏳ *Processing YouTube MP4 Download...*\n\n🔄 Working on your request...',
-                    errorText: '❌ *YouTube MP4 Download Failed*'
-                },
-                execute: this.downloadYouTubeMP4.bind(this)
-            },
-            {
                 name: 'soundcloud',
                 description: 'Downloads a track from SoundCloud.',
                 usage: '.soundcloud <url>',
