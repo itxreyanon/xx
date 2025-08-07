@@ -21,7 +21,8 @@ class YouTubeModule {
             {
                 name: 'yt-mp3',
                 description: 'Downloads a YouTube video as MP3 audio file.',
-                usage: '.yt-mp3 <url>',
+                usage: '.ytmp3 <url>',
+                aliases: ['ytmp3'],
                 permissions: 'public',
                 ui: {
                     processingText: '⏳ *Processing YouTube MP3 Download...*\n\n🔄 Working on your request...',
@@ -32,7 +33,8 @@ class YouTubeModule {
             {
                 name: 'yt-mp4',
                 description: 'Downloads a YouTube video as MP4 video file.',
-                usage: '.yt-mp4 <url>',
+                usage: '.yt <url>',
+                aliases: ['yt'],
                 permissions: 'public',
                 ui: {
                     processingText: '⏳ *Processing YouTube MP4 Download...*\n\n🔄 Working on your request...',
@@ -43,7 +45,8 @@ class YouTubeModule {
             {
                 name: 'yt-info',
                 description: 'Gets information about a YouTube video.',
-                usage: '.yt-info <url>',
+                usage: '.ytinfo <url>',
+                aliases: ['ytinfo'],
                 permissions: 'public',
                 ui: {
                     processingText: '⏳ *Fetching YouTube Video Info...*\n\n🔄 Working on your request...',
@@ -189,7 +192,7 @@ class YouTubeModule {
 
         try {
             // Use video quality format (720p, 480p, 360p, etc.)
-            const result = await this._fetchYouTubeData(url, '720', 'video');
+            const result = await this._fetchYouTubeData(url, '480', 'video');
             
             if (!result.status || !result.result) {
                 throw new Error('Invalid API response');
@@ -243,7 +246,7 @@ class YouTubeModule {
                 response += `\n*◦ Thumbnail:* ${data.cover}`;
             }
             
-            response += `\n\n*Use .yt-mp3 or .yt-mp4 to download this video.*`;
+            response += `\n\n*Use .ytmp3 or .yt to download this video.*`;
             
             return response;
         } catch (error) {
