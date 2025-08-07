@@ -7,7 +7,7 @@ const logger = require('../Core/logger');
 class GeminiVisionModule {
     constructor(bot) {
         this.bot = bot;
-        this.name = 'gemini-vision';
+        this.name = 'gemini vision';
         this.metadata = {
             description: 'Analyzes images and videos using Google Gemini Vision API.',
             version: '2.6.0',
