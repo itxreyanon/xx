@@ -227,76 +227,76 @@ class DownloaderModule {
         return responseText;
     }
 
-    /**
-     * Executes the YouTube MP3 download command.
-     * @param {object} msg - The message object from the bot.
-     * @param {string[]} params - The parameters passed with the command.
-     * @returns {Promise<string>} The formatted result string.
-     */
-    async downloadYouTubeMP3(msg, params) {
-        const url = params[0];
-        if (!url) return 'Please provide a YouTube URL.';
+/**
+ * Executes the YouTube MP3 download command.
+ * @param {object} msg - The message object from the bot.
+ * @param {string[]} params - The parameters passed with the command.
+ * @returns {Promise<string>} The formatted result string or empty if media is sent.
+ */
+async downloadYouTubeMP3(msg, params) {
+    const url = params[0];
+    if (!url) return 'Please provide a YouTube URL.';
 
+    try {
         const result = await this._fetchDownload('ytmp3', url);
         const data = result.data;
 
-        return `╭  ✦ YouTube MP3 Download ✦  ╮\n\n` +
-               `*◦ Title:* ${data.title}\n` +
-               `*◦ Author:* ${data.author}\n` +
-               `*◦ Duration:* ${Math.floor(data.duration / 60)}:${(data.duration % 60).toString().padStart(2, '0')}\n` +
-               `*◦ Quality:* ${data.download.quality}\n` +
-               `*◦ Size:* ${data.download.size}\n\n` +
-               `*Download URL:* ${data.download.url}`;
+        const caption = `╭  ✦ YouTube MP3 Download ✦  ╮\n\n` +
+                       `*◦ Title:* ${data.title}\n` +
+                       `*◦ Author:* ${data.author}\n` +
+                       `*◦ Duration:* ${Math.floor(data.duration / 60)}:${(data.duration % 60).toString().padStart(2, '0')}\n` +
+                       `*◦ Quality:* ${data.download.quality}\n` +
+                       `*◦ Size:* ${data.download.size}`;
+
+        return this._downloadAndSendMedia(msg, data.download.url, caption, 'audio');
+    } catch (error) {
+        return `❌ Failed to download YouTube MP3: ${error.message}`;
     }
+}
 
-    /**
-     * Executes the YouTube MP4 download command.
-     * @param {object} msg - The message object from the bot.
-     * @param {string[]} params - The parameters passed with the command.
-     * @returns {Promise<string>} The formatted result string.
-     */
-    async downloadYouTubeMP4(msg, params) {
-        const url = params[0];
-        if (!url) return 'Please provide a YouTube URL.';
+/**
+ * Executes the YouTube MP4 download command.
+ * @param {object} msg - The message object from the bot.
+ * @param {string[]} params - The parameters passed with the command.
+ * @returns {Promise<string>} The formatted result string or empty if media is sent.
+ */
+async downloadYouTubeMP4(msg, params) {
+    const url = params[0];
+    if (!url) return 'Please provide a YouTube URL.';
 
+    try {
         const result = await this._fetchDownload('ytmp4', url);
         const data = result.data;
 
-        return `╭  ✦ YouTube MP4 Download ✦  ╮\n\n` +
-               `*◦ Title:* ${data.title}\n` +
-               `*◦ Author:* ${data.author}\n` +
-               `*◦ Duration:* ${Math.floor(data.duration / 60)}:${(data.duration % 60).toString().padStart(2, '0')}\n` +
-               `*◦ Quality:* ${data.download.quality}\n` +
-               `*◦ Size:* ${data.download.size}\n\n` +
-               `*Download URL:* ${data.download.url}`;
+        const caption = `╭  ✦ YouTube MP4 Download ✦  ╮\n\n` +
+                       `*◦ Title:* ${data.title}\n` +
+                       `*◦ Author:* ${data.author}\n` +
+                       `*◦ Duration:* ${Math.floor(data.duration / 60)}:${(data.duration % 60).toString().padStart(2, '0')}\n` +
+                       `*◦ Quality:* ${data.download.quality}\n` +
+                       `*◦ Size:* ${data.download.size}`;
+
+        return this._downloadAndSendMedia(msg, data.download.url, caption, 'video');
+    } catch (error) {
+        return `❌ Failed to download YouTube MP4: ${error.message}`;
     }
-
-
-async downloadSoundCloud(msg, params) {
-  const url = params[0];
-  if (!url) return 'Please provide a SoundCloud URL.';
-
-  const result = await this._fetchDownload('soundcloud', url);
-  const res = result.data;
-
-  const caption = `╭  ✦ Soundcloud Download ✦  ╮\n\n` +
-                  `*◦ Title:* ${res.title}\n` +
-                  `*◦ Artist:* ${res.author}\n` +
-                  `*◦ Plays:* ${this._convertMiles(res.playbacks)}\n` +
-                  `*◦ Likes:* ${this._convertMiles(res.likes)}\n` +
-                  `*◦ Comments:* ${this._convertMiles(res.comments)}`;
-
-  const response = await fetch(res.download);
-  const buffer = Buffer.from(await response.arrayBuffer());
-
-  return {
-    caption,
-    media: {
-      audio: buffer,
-      mimetype: 'audio/mpeg'
-    }
-  };
 }
+
+    async downloadSoundCloud(msg, params) {
+        const url = params[0];
+        if (!url) return 'Please provide a SoundCloud URL.';
+
+        const result = await this._fetchDownload('soundcloud', url);
+        const res = result.data;
+
+        const caption = `╭  ✦ Soundcloud Download ✦  ╮\n\n` +
+                       `*◦ Title:* ${res.title}\n` +
+                       `*◦ Artist:* ${res.author}\n` +
+                       `*◦ Plays:* ${this._convertMiles(res.playbacks)}\n` +
+                       `*◦ Likes:* ${this._convertMiles(res.likes)}\n` +
+                       `*◦ Comments:* ${this._convertMiles(res.comments)}`;
+
+        return this._downloadAndSendMedia(msg, res.download, caption, 'audio');
+    }
 
 
     /**
@@ -329,27 +329,6 @@ async downloadSoundCloud(msg, params) {
             return `❌ Failed to download Facebook video: ${error.message}`;
         }
     }
-    async downloadTwitter(msg, params) {
-        const url = params[0];
-        if (!url) return 'Please provide a Twitter/X URL.';
-        const result = await this._fetchDownload('twitterv2', url);
-        const data = result.data;
-
-        // Check if media exists and if it's a video before trying to get the URL
-        if (!data.media || !data.media[0] || !data.media[0].videos || data.media[0].videos.length === 0) {
-            return 'This tweet does not contain a video.';
-        }
-
-        const bestVideo = data.media[0].videos.pop();
-        return `╭  ✦ Twitter Download ✦  ╮\n\n` +
-               `*◦ Author:* @${data.author.username}\n` +
-               `*◦ Description:* ${data.description.split('https://')[0]}\n` +
-               `*◦ Views:* ${this._convertMiles(data.view)}\n` +
-               `*◦ Likes:* ${this._convertMiles(data.favorite)}\n` +
-               `*◦ Retweets:* ${this._convertMiles(data.retweet)}\n\n` +
-               `*Download URL (${bestVideo.quality}):* ${bestVideo.url}`;
-    }
-
 
     /**
      * Executes the Twitter download command.
