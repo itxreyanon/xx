@@ -91,6 +91,72 @@ class DownloaderModule {
                 execute: this.downloadSoundCloud.bind(this)
             },
             {
+                name: 'twitter',
+                description: 'Downloads a video from Twitter / X.com.',
+                usage: '.twitter <url>',
+                permissions: 'public',
+                ui: {
+                    processingText: '⏳ *Processing Twitter Download...*\n\n🔄 Working on your request...',
+                    errorText: '❌ *Twitter Download Failed*'
+                },
+                execute: this.downloadTwitter.bind(this)
+            },
+            {
+                name: 'applemusic',
+                description: 'Gets download link for an Apple Music track.',
+                usage: '.applemusic <url>',
+                permissions: 'public',
+                ui: {
+                    processingText: '⏳ *Processing Apple Music Download...*\n\n🔄 Working on your request...',
+                    errorText: '❌ *Apple Music Download Failed*'
+                },
+                execute: this.downloadAppleMusic.bind(this)
+            },
+            {
+                name: 'xnxx',
+                description: 'Downloads a video from XNXX.',
+                usage: '.xnxx <url>',
+                permissions: 'public',
+                ui: {
+                    processingText: '⏳ *Processing XNXX Download...*\n\n🔄 Working on your request...',
+                    errorText: '❌ *XNXX Download Failed*'
+                },
+                execute: this.downloadXnxx.bind(this)
+            },
+            {
+                name: 'spotifyalbum',
+                description: 'Lists tracks from a Spotify album.',
+                usage: '.spotifyalbum <url>',
+                permissions: 'public',
+                ui: {
+                    processingText: '⏳ *Fetching Spotify Album...*\n\n🔄 Working on your request...',
+                    errorText: '❌ *Spotify Album Fetch Failed*'
+                },
+                execute: this.downloadSpotifyAlbum.bind(this)
+            },
+            {
+                name: 'spotifyplaylist',
+                description: 'Lists tracks from a Spotify playlist.',
+                usage: '.spotifyplaylist <url>',
+                permissions: 'public',
+                ui: {
+                    processingText: '⏳ *Fetching Spotify Playlist...*\n\n🔄 Working on your request...',
+                    errorText: '❌ *Spotify Playlist Fetch Failed*'
+                },
+                execute: this.downloadSpotifyPlaylist.bind(this)
+            },
+            {
+                name: 'threads',
+                description: 'Downloads media from a Threads post.',
+                usage: '.threads <url>',
+                permissions: 'public',
+                ui: {
+                    processingText: '⏳ *Processing Threads Download...*\n\n🔄 Working on your request...',
+                    errorText: '❌ *Threads Download Failed*'
+                },
+                execute: this.downloadThreads.bind(this)
+            },
+            {
                 name: 'facebook',
                 description: 'Downloads a video from Facebook.',
                 usage: '.facebook <url>',
@@ -100,6 +166,17 @@ class DownloaderModule {
                     errorText: '❌ *Facebook Download Failed*'
                 },
                 execute: this.downloadFacebook.bind(this)
+            },
+            {
+                name: 'pinterest',
+                description: 'Downloads media from Pinterest.',
+                usage: '.pinterest <url>',
+                permissions: 'public',
+                ui: {
+                    processingText: '⏳ *Processing Pinterest Download...*\n\n🔄 Working on your request...',
+                    errorText: '❌ *Pinterest Download Failed*'
+                },
+                execute: this.downloadPinterest.bind(this)
             }
         ];
     }
@@ -288,6 +365,112 @@ class DownloaderModule {
                `*SD Video:* ${result.urls[1].sd}`;
     }
 
+    async downloadTwitter(msg, params) {
+        const url = params[0];
+        if (!url) return 'Please provide a Twitter/X URL.';
+        const result = await this._fetchDownload('twitterv2', url);
+        const data = result.data;
+
+        // Check if media exists and if it's a video before trying to get the URL
+        if (!data.media || !data.media[0] || !data.media[0].videos || data.media[0].videos.length === 0) {
+            return 'This tweet does not contain a video.';
+        }
+
+        const bestVideo = data.media[0].videos.pop();
+        return `╭  ✦ Twitter Download ✦  ╮\n\n` +
+               `*◦ Author:* @${data.author.username}\n` +
+               `*◦ Description:* ${data.description.split('https://')[0]}\n` +
+               `*◦ Views:* ${this._convertMiles(data.view)}\n` +
+               `*◦ Likes:* ${this._convertMiles(data.favorite)}\n` +
+               `*◦ Retweets:* ${this._convertMiles(data.retweet)}\n\n` +
+               `*Download URL (${bestVideo.quality}):* ${bestVideo.url}`;
+    }
+
+    async downloadAppleMusic(msg, params) {
+        const url = params[0];
+        if (!url) return 'Please provide an Apple Music URL.';
+        const result = await this._fetchDownload('applemusicdl', url);
+        const data = result.data;
+        return `╭  ✦ Apple Music Download ✦  ╮\n\n` +
+               `*◦ Title:* ${data.name || "-"}\n` +
+               `*◦ Artist(s):* ${data.artists || "-"}\n` +
+               `*◦ Duration:* ${data.duration || "-"}\n\n` +
+               `*Download URL:* ${data.download}`;
+    }
+
+    async downloadXnxx(msg, params) {
+        const url = params[0];
+        if (!url) return 'Please provide a URL.';
+        const result = await this._fetchDownload('xnxxdl', url);
+        const data = result.data;
+        return `╭  ✦ XNXX Download ✦  ╮\n\n` +
+               `*◦ Title:* ${data.title}\n` +
+               `*◦ Duration:* ${data.duration.trim()}\n` +
+               `*◦ Quality:* ${data.quality}\n` +
+               `*◦ Views:* ${data.views}\n\n` +
+               `*Download (High Quality):* ${data.download.high}\n` +
+               `*Download (Low Quality):* ${data.download.low}`;
+    }
+
+    async downloadSpotifyAlbum(msg, params) {
+        const url = params[0];
+        if (!url) return 'Please provide a Spotify Album URL.';
+        const result = await this._fetchDownload('spotifyalbum', url);
+        const data = result.data;
+        let responseText = `╭  ✦ Spotify Album: ${data.name} ✦  ╮\n\n` +
+                           `*◦ Total Tracks:* ${data.total_tracks}\n` +
+                           `*◦ Released:* ${data.publish}\n\n` +
+                           `*Tracks:*\n`;
+        
+        result.tracks.forEach((track, index) => {
+            responseText += `${index + 1}. ${track.title} - ${track.artist}\n`;
+        });
+
+        return responseText;
+    }
+
+    async downloadSpotifyPlaylist(msg, params) {
+        const url = params[0];
+        if (!url) return 'Please provide a Spotify Playlist URL.';
+        const result = await this._fetchDownload('spotifyplaylist', url);
+        const data = result.data;
+        let responseText = `╭  ✦ Spotify Playlist: ${data.name} ✦  ╮\n\n` +
+                           `*◦ Description:* ${data.description}\n` +
+                           `*◦ Followers:* ${this._convertMiles(data.followers)}\n\n` +
+                           `*Tracks:*\n`;
+
+        result.tracks.forEach((track, index) => {
+            responseText += `${index + 1}. ${track.title} - ${track.artist}\n`;
+        });
+
+        return responseText;
+    }
+
+    async downloadThreads(msg, params) {
+        const url = params[0];
+        if (!url) return 'Please provide a Threads URL.';
+        const result = await this._fetchDownload('threads', url);
+        const media = result.data;
+        let responseText = `*✦ Threads Download ✦*\n\n`;
+        media.forEach((item, index) => {
+            responseText += `*› Media ${index + 1} [${item.type}]:* ${item.url}\n`;
+        });
+        return responseText;
+    }
+
+    async downloadPinterest(msg, params) {
+        const url = params[0];
+        if (!url) return 'Please provide a Pinterest URL.';
+        const result = await this._fetchDownload('pinterestdl', url);
+        const data = result.data;
+        return `╭  ✦ Pinterest Download ✦  ╮\n\n` +
+               `*◦ Title:* ${data.title}\n` +
+               `*◦ Author:* ${data.author_name}\n` +
+               `*◦ Username:* ${data.username}\n` +
+               `*◦ Likes:* ${this._convertMiles(data.likes)}\n` +
+               `*◦ Comments:* ${this._convertMiles(data.comments)}\n\n` +
+               `*Download URL:* ${data.download.url}`;
+    }
 }
 
 module.exports = DownloaderModule;
