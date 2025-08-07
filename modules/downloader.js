@@ -29,7 +29,6 @@ class DownloaderModule {
                 description: 'Downloads a TikTok video.',
                 usage: '.tiktok <url>',
                 permissions: 'public',
-                aliases: ['tt', 'tik'],
                 ui: {
                     processingText: '⏳ *Processing TikTok Download...*\n\n🔄 Working on your request...',
                     errorText: '❌ *TikTok Download Failed*'
@@ -41,7 +40,6 @@ class DownloaderModule {
                 description: 'Downloads Instagram content (post or story).',
                 usage: '.instagram <url>',
                 permissions: 'public',
-                aliases: ['ig', 'insta'],
                 ui: {
                     processingText: '⏳ *Processing Instagram Download...*\n\n🔄 Working on your request...',
                     errorText: '❌ *Instagram Download Failed*'
@@ -53,7 +51,6 @@ class DownloaderModule {
                 description: 'Downloads a YouTube video as an MP3 audio file.',
                 usage: '.ytmp3 <url>',
                 permissions: 'public',
-                aliases: ['yta', 'ytaudio'],
                 ui: {
                     processingText: '⏳ *Processing YouTube MP3 Download...*\n\n🔄 Working on your request...',
                     errorText: '❌ *YouTube MP3 Download Failed*'
@@ -65,7 +62,6 @@ class DownloaderModule {
                 description: 'Downloads a YouTube video as an MP4 file.',
                 usage: '.ytmp4 <url>',
                 permissions: 'public',
-                aliases: ['ytv', 'ytvideo'],
                 ui: {
                     processingText: '⏳ *Processing YouTube MP4 Download...*\n\n🔄 Working on your request...',
                     errorText: '❌ *YouTube MP4 Download Failed*'
@@ -226,7 +222,7 @@ class DownloaderModule {
         const result = await this._fetchDownload('tiktok', url);
         const data = result.data;
 
-        const caption = `╭  ✦ TikTok Download ✦  ╮\n\n` +
+        return `╭  ✦ TikTok Download ✦  ╮\n\n` +
                `*◦ Name:* ${data.author.nickname}\n` +
                `*◦ Username:* ${data.author.username}\n` +
                `*◦ Duration:* ${data.duration}s\n` +
@@ -238,13 +234,8 @@ class DownloaderModule {
                `╭  ✦ Music Info ✦  ╮\n\n` +
                `*◦ Music:* ${data.music.title}\n` +
                `*◦ Author:* ${data.music.author}\n` +
-               `*◦ Duration:* ${data.music.duration}s`;
-
-        // Download and send the video
-        const videoUrl = data.meta.media[0].hd || data.meta.media[0].org;
-        await this._downloadAndSendMedia(videoUrl, 'video', caption, msg, this.bot);
-        
-        return null; // Don't return text since we're sending media
+               `*◦ Duration:* ${data.music.duration}s\n\n` +
+               `*Video URL:* ${data.meta.media[0].hd || data.meta.media[0].org}`;
     }
 
     /**
@@ -261,16 +252,12 @@ class DownloaderModule {
         const result = await this._fetchDownload(endpoint, url);
         const media = result.data;
 
-        const caption = `*亗 I N S T A G R A M*\n\n*Downloaded from Instagram*`;
-        
-        // Send each media item
-        for (let i = 0; i < media.length; i++) {
-            const item = media[i];
-            const itemCaption = `${caption}\n*Media ${i + 1} of ${media.length}*`;
-            await this._downloadAndSendMedia(item.url, item.type, itemCaption, msg, this.bot);
-        }
+        let responseText = `*亗 I N S T A G R A M*\n\n`;
+        media.forEach((item, index) => {
+            responseText += `*› Media ${index + 1} [${item.type}]:* ${item.url}\n`;
+        });
 
-        return null; // Don't return text since we're sending media
+        return responseText;
     }
 
     /**
@@ -286,17 +273,13 @@ class DownloaderModule {
         const result = await this._fetchDownload('ytmp3', url);
         const data = result.data;
 
-        const caption = `╭  ✦ YouTube MP3 Download ✦  ╮\n\n` +
+        return `╭  ✦ YouTube MP3 Download ✦  ╮\n\n` +
                `*◦ Title:* ${data.title}\n` +
                `*◦ Author:* ${data.author}\n` +
                `*◦ Duration:* ${Math.floor(data.duration / 60)}:${(data.duration % 60).toString().padStart(2, '0')}\n` +
                `*◦ Quality:* ${data.download.quality}\n` +
-               `*◦ Size:* ${data.download.size}`;
-
-        // Download and send the audio
-        await this._downloadAndSendMedia(data.download.url, 'audio', caption, msg, this.bot);
-        
-        return null; // Don't return text since we're sending media
+               `*◦ Size:* ${data.download.size}\n\n` +
+               `*Download URL:* ${data.download.url}`;
     }
 
     /**
@@ -312,17 +295,13 @@ class DownloaderModule {
         const result = await this._fetchDownload('ytmp4', url);
         const data = result.data;
 
-        const caption = `╭  ✦ YouTube MP4 Download ✦  ╮\n\n` +
+        return `╭  ✦ YouTube MP4 Download ✦  ╮\n\n` +
                `*◦ Title:* ${data.title}\n` +
                `*◦ Author:* ${data.author}\n` +
                `*◦ Duration:* ${Math.floor(data.duration / 60)}:${(data.duration % 60).toString().padStart(2, '0')}\n` +
                `*◦ Quality:* ${data.download.quality}\n` +
-               `*◦ Size:* ${data.download.size}`;
-
-        // Download and send the video
-        await this._downloadAndSendMedia(data.download.url, 'video', caption, msg, this.bot);
-        
-        return null; // Don't return text since we're sending media
+               `*◦ Size:* ${data.download.size}\n\n` +
+               `*Download URL:* ${data.download.url}`;
     }
 
     /**
