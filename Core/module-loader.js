@@ -440,6 +440,16 @@ const wrappedCmd = shouldWrap ? {
 
 
                     this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
+
+                    // Register aliases if they exist
+                    if (cmd.aliases && Array.isArray(cmd.aliases)) {
+                        for (const alias of cmd.aliases) {
+                            if (alias && typeof alias === 'string') {
+                                this.bot.messageHandler.registerCommandHandler(alias, wrappedCmd);
+                                logger.debug(`📝 Registered alias: ${alias} -> ${cmd.name}`);
+                            }
+                        }
+                    }
                 }
             }
             if (moduleInstance.messageHooks && typeof moduleInstance.messageHooks === 'object' && moduleInstance.messageHooks !== null) {

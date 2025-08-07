@@ -21,6 +21,7 @@ class CoreModule {
                 description: 'Check bot response time',
                 usage: '.ping',
                 permissions: 'public',
+                aliases: ['p'],
                 ui: {
                     processingText: '🏓 *Pinging...*',
                     errorText: '❌ Failed to ping'
@@ -32,6 +33,7 @@ class CoreModule {
                 description: 'Show bot status and statistics',
                 usage: '.status',
                 permissions: 'public',
+                aliases: ['stats', 'info'],
                 ui: {
                     processingText: '📊 Gathering status...',
                     errorText: '❌ Failed to retrieve status'

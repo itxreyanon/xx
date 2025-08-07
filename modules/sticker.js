@@ -20,17 +20,7 @@ class StickerModule {
                 description: 'Create sticker from image/video',
                 usage: '.sticker (reply to image/video)',
                 permissions: 'public',
-                ui: {
-                    processingText: '🎨 *Creating Sticker...*\n\n⏳ Converting to sticker format...',
-                    errorText: '❌ *Sticker Creation Failed*'
-                },
-                execute: this.createSticker.bind(this)
-            },
-            {
-                name: 's',
-                description: 'Quick sticker creation (alias)',
-                usage: '.s (reply to image/video)',
-                permissions: 'public',
+                aliases: ['s'],
                 ui: {
                     processingText: '🎨 *Creating Sticker...*\n\n⏳ Converting to sticker format...',
                     errorText: '❌ *Sticker Creation Failed*'
@@ -42,6 +32,7 @@ class StickerModule {
                 description: 'Create sticker from text',
                 usage: '.textsticker <text>',
                 permissions: 'public',
+                aliases: ['ts', 'textst'],
                 ui: {
                     processingText: '📝 *Creating Text Sticker...*\n\n⏳ Generating sticker from text...',
                     errorText: '❌ *Text Sticker Creation Failed*'
@@ -53,6 +44,7 @@ class StickerModule {
                 description: 'Create animated sticker from video/GIF',
                 usage: '.anim (reply to video/GIF)',
                 permissions: 'public',
+                aliases: ['animated', 'gif'],
                 ui: {
                     processingText: '🎬 *Creating Animated Sticker...*\n\n⏳ Processing animation...',
                     errorText: '❌ *Animated Sticker Creation Failed*'
