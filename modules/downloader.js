@@ -272,27 +272,32 @@ class DownloaderModule {
     }
 
 
-    /**
-     * Executes the SoundCloud download command.
-     * @param {object} msg - The message object from the bot.
-     * @param {string[]} params - The parameters passed with the command.
-     * @returns {Promise<string>} The formatted result string.
-     */
-    async downloadSoundCloud(msg, params) {
-        const url = params[0];
-        if (!url) return 'Please provide a SoundCloud URL.';
+async downloadSoundCloud(msg, params) {
+  const url = params[0];
+  if (!url) return 'Please provide a SoundCloud URL.';
 
-        const result = await this._fetchDownload('soundcloud', url);
-        const res = result.data;
+  const result = await this._fetchDownload('soundcloud', url);
+  const res = result.data;
 
-        return `╭  ✦ Soundcloud Download ✦  ╮\n\n` +
-               `*◦ Title:* ${res.title}\n` +
-               `*◦ Artist:* ${res.author}\n` +
-               `*◦ Plays:* ${this._convertMiles(res.playbacks)}\n` +
-               `*◦ Likes:* ${this._convertMiles(res.likes)}\n` +
-               `*◦ Comments:* ${this._convertMiles(res.comments)}\n\n` +
-               `*Download URL:* ${res.download}`;
+  const caption = `╭  ✦ Soundcloud Download ✦  ╮\n\n` +
+                  `*◦ Title:* ${res.title}\n` +
+                  `*◦ Artist:* ${res.author}\n` +
+                  `*◦ Plays:* ${this._convertMiles(res.playbacks)}\n` +
+                  `*◦ Likes:* ${this._convertMiles(res.likes)}\n` +
+                  `*◦ Comments:* ${this._convertMiles(res.comments)}`;
+
+  const response = await fetch(res.download);
+  const buffer = Buffer.from(await response.arrayBuffer());
+
+  return {
+    caption,
+    media: {
+      audio: buffer,
+      mimetype: 'audio/mpeg'
     }
+  };
+}
+
 
     /**
      * Executes the Facebook download command.
