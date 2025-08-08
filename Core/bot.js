@@ -1,7 +1,9 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { makeCacheableSignalKeyStore, getAggregateVotesInPollMessage, isJidNewsletter } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs-extra');
 const path = require('path');
+const NodeCache = require('node-cache');
 
 const config = require('../config');
 const logger = require('./logger');
@@ -22,6 +24,12 @@ class HyperWaBot {
         this.moduleLoader = new ModuleLoader(this);
         this.qrCodeSent = false;
         this.useMongoAuth = config.get('auth.useMongoAuth', false);
+        
+        // Message retry counter cache for failed decryption/encryption
+        this.msgRetryCounterCache = new NodeCache();
+        
+        // On-demand history sync tracking
+        this.onDemandMap = new Map();
         
         // Initialize store
         this.store = makeInMemoryStore({
@@ -208,21 +216,14 @@ class HyperWaBot {
         this.sock = makeWASocket({
             auth: this.authState.state,
             version,
+                // Caching makes the store faster to send/recv messages
+                keys: makeCacheableSignalKeyStore(this.authState.state.keys, logger),
             printQRInTerminal: false,
             logger: logger.child({ module: 'baileys' }),
             getMessage: async (key) => {
                 // Try to get message from store first
-                try {
-                    const message = this.store.loadMessage(key.remoteJid, key.id);
-                    if (message) {
-                        return message.message || { conversation: 'Message found but content unavailable' };
-                    }
-                    return { conversation: 'Message not found in store' };
-                } catch (error) {
-                    logger.warn('Error retrieving message from store:', error);
-                    return { conversation: 'Error retrieving message' };
-                }
-            },
+            }
+            getMessage: this.getMessage.bind(this),
             browser: ['HyperWa', 'Chrome', '3.0'],
             // Add connection options for stability
             connectTimeoutMs: 60000,
@@ -264,53 +265,232 @@ class HyperWaBot {
     }
 
     setupEventHandlers() {
-        // Connection update handler with better error handling
-        this.sock.ev.on('connection.update', async (update) => {
-            try {
-                await this.handleConnectionUpdate(update);
-            } catch (error) {
-                logger.error('❌ Error in connection update handler:', error);
+        // Use the process function for efficient batch processing
+        this.sock.ev.process(async (events) => {
+            // Connection updates
+            if (events['connection.update']) {
+                try {
+                    await this.handleConnectionUpdate(events['connection.update']);
+                } catch (error) {
+                    logger.error('❌ Error in connection update handler:', error);
+                }
             }
-        });
 
-        // Credentials update handler with error handling
-        this.sock.ev.on('creds.update', async () => {
-            try {
-                await this.authState.saveCreds();
-            } catch (error) {
-                logger.error('❌ Error saving credentials:', error);
+            // Credentials update
+            if (events['creds.update']) {
+                try {
+                    await this.authState.saveCreds();
+                } catch (error) {
+                    logger.error('❌ Error saving credentials:', error);
+                }
             }
-        });
 
-        // Message handler with queue system
-        this.sock.ev.on('messages.upsert', async (messageUpdate) => {
-            try {
-                // Add messages to queue for processing
-                this.messageQueue.push(messageUpdate);
-                await this.processMessageQueue();
-            } catch (error) {
-                logger.error('❌ Error handling message upsert:', error);
+            // Labels association
+            if (events['labels.association']) {
+                logger.debug('🏷️ Labels association:', events['labels.association']);
             }
-        });
 
-        // Add other event handlers with error wrapping
-        this.sock.ev.on('messages.update', async (updates) => {
-            try {
-                // Handle message updates (read receipts, etc.)
-                logger.debug('📝 Message updates received:', updates.length);
-            } catch (error) {
-                logger.error('❌ Error handling message updates:', error);
+            // Labels edit
+            if (events['labels.edit']) {
+                logger.debug('✏️ Labels edit:', events['labels.edit']);
             }
-        });
 
-        this.sock.ev.on('presence.update', async (update) => {
-            try {
-                // Handle presence updates
-                logger.debug('👤 Presence update:', update.id);
-            } catch (error) {
-                logger.error('❌ Error handling presence update:', error);
+            // Call events
+            if (events.call) {
+                logger.info('📞 Call event received:', events.call);
+                await this.handleCallEvent(events.call);
+            }
+
+            // History sync
+            if (events['messaging-history.set']) {
+                await this.handleHistorySync(events['messaging-history.set']);
+            }
+
+            // Message upserts
+            if (events['messages.upsert']) {
+                try {
+                    const upsert = events['messages.upsert'];
+                    logger.debug('📨 Messages upsert:', { 
+                        type: upsert.type, 
+                        count: upsert.messages.length,
+                        requestId: upsert.requestId 
+                    });
+
+                    if (upsert.requestId) {
+                        logger.info('📋 Placeholder message received for request:', upsert.requestId);
+                    }
+
+                    // Add messages to queue for processing
+                    this.messageQueue.push(upsert);
+                    await this.processMessageQueue();
+                } catch (error) {
+                    logger.error('❌ Error handling message upsert:', error);
+                }
+            }
+
+            // Message updates (status, polls, etc.)
+            if (events['messages.update']) {
+                await this.handleMessageUpdates(events['messages.update']);
+            }
+
+            // Message receipts
+            if (events['message-receipt.update']) {
+                logger.debug('📬 Message receipt update:', events['message-receipt.update']);
+            }
+
+            // Message reactions
+            if (events['messages.reaction']) {
+                logger.debug('😀 Message reaction:', events['messages.reaction']);
+                await this.handleMessageReaction(events['messages.reaction']);
+            }
+
+            // Presence updates
+            if (events['presence.update']) {
+                logger.debug('👤 Presence update:', events['presence.update']);
+            }
+
+            // Chat updates
+            if (events['chats.update']) {
+                logger.debug('💬 Chats update:', events['chats.update']);
+            }
+
+            // Contact updates
+            if (events['contacts.update']) {
+                await this.handleContactUpdates(events['contacts.update']);
+            }
+
+            // Chat deletions
+            if (events['chats.delete']) {
+                logger.info('🗑️ Chats deleted:', events['chats.delete']);
             }
         });
+    }
+
+    // Enhanced getMessage function
+    async getMessage(key) {
+        try {
+            // Try to get message from store first
+            const message = this.store.loadMessage(key.remoteJid, key.id);
+            if (message) {
+                return message.message || { conversation: 'Message found but content unavailable' };
+            }
+            
+            // Fallback message
+            return { conversation: 'Message not found in store' };
+        } catch (error) {
+            logger.warn('Error retrieving message from store:', error);
+            return { conversation: 'Error retrieving message' };
+        }
+    }
+
+    // Handle call events
+    async handleCallEvent(callEvents) {
+        for (const call of callEvents) {
+            logger.info(`📞 ${call.status} call from ${call.from}:`, call);
+            
+            // You can add call handling logic here
+            if (call.status === 'offer') {
+                // Auto-reject calls if desired
+                // await this.sock.rejectCall(call.id, call.from);
+            }
+        }
+    }
+
+    // Handle history sync
+    async handleHistorySync(historyData) {
+        const { chats, contacts, messages, isLatest, progress, syncType } = historyData;
+        
+        if (syncType === 'ON_DEMAND') {
+            logger.info('📚 Received on-demand history sync:', { messages: messages.length });
+        }
+        
+        logger.info(`📚 History sync: ${chats.length} chats, ${contacts.length} contacts, ${messages.length} messages (latest: ${isLatest}, progress: ${progress}%)`);
+    }
+
+    // Handle message updates (polls, status changes, etc.)
+    async handleMessageUpdates(updates) {
+        for (const { key, update } of updates) {
+            if (update.pollUpdates) {
+                // Handle poll updates
+                const pollCreation = this.store.loadMessage(key.remoteJid, key.id);
+                if (pollCreation) {
+                    const aggregateVotes = getAggregateVotesInPollMessage({
+                        message: pollCreation,
+                        pollUpdates: update.pollUpdates,
+                    });
+                    logger.info('📊 Poll update aggregation:', aggregateVotes);
+                }
+            }
+            
+            logger.debug('📝 Message update:', { key, update });
+        }
+    }
+
+    // Handle message reactions
+    async handleMessageReaction(reactions) {
+        for (const reaction of reactions) {
+            logger.debug('😀 Reaction:', reaction);
+            // You can add reaction handling logic here
+        }
+    }
+
+    // Handle contact updates (including profile picture changes)
+    async handleContactUpdates(contacts) {
+        for (const contact of contacts) {
+            if (typeof contact.imgUrl !== 'undefined') {
+                try {
+                    const newUrl = contact.imgUrl === null
+                        ? null
+                        : await this.sock.profilePictureUrl(contact.id).catch(() => null);
+                    logger.info(`👤 Contact ${contact.id} has new profile pic: ${newUrl}`);
+                } catch (error) {
+                    logger.warn('Error getting profile picture:', error);
+                }
+            }
+        }
+    }
+
+    // Request placeholder resend
+    async requestPlaceholderResend(messageKey) {
+        try {
+            const messageId = await this.sock.requestPlaceholderResend(messageKey);
+            logger.info('📋 Requested placeholder resync, ID:', messageId);
+            return messageId;
+        } catch (error) {
+            logger.error('❌ Failed to request placeholder resend:', error);
+            throw error;
+        }
+    }
+
+    // Fetch message history on demand
+    async fetchMessageHistory(count, messageKey, messageTimestamp) {
+        try {
+            const messageId = await this.sock.fetchMessageHistory(count, messageKey, messageTimestamp);
+            logger.info('📚 Requested on-demand history sync, ID:', messageId);
+            this.onDemandMap.set(messageId, { count, messageKey, messageTimestamp });
+            return messageId;
+        } catch (error) {
+            logger.error('❌ Failed to fetch message history:', error);
+            throw error;
+        }
+    }
+
+    // Send message with typing indicator
+    async sendMessageWithTyping(jid, content, delay = 2000) {
+        try {
+            await this.sock.presenceSubscribe(jid);
+            await this.sleep(500);
+
+            await this.sock.sendPresenceUpdate('composing', jid);
+            await this.sleep(delay);
+
+            await this.sock.sendPresenceUpdate('paused', jid);
+
+            return await this.sock.sendMessage(jid, content);
+        } catch (error) {
+            logger.error('❌ Failed to send message with typing:', error);
+            throw error;
+        }
     }
 
     async processMessageQueue() {
@@ -323,6 +503,31 @@ class HyperWaBot {
         try {
             while (this.messageQueue.length > 0) {
                 const messageUpdate = this.messageQueue.shift();
+                
+                // Handle special message types
+                if (messageUpdate.type === 'notify') {
+                    for (const msg of messageUpdate.messages) {
+                        // Handle placeholder resend requests
+                        const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
+                        
+                        if (text === "requestPlaceholder" && !messageUpdate.requestId) {
+                            await this.requestPlaceholderResend(msg.key);
+                            continue;
+                        }
+                        
+                        if (text === "onDemandHistSync") {
+                            await this.fetchMessageHistory(50, msg.key, msg.messageTimestamp);
+                            continue;
+                        }
+                        
+                        // Skip newsletter messages for regular processing
+                        if (isJidNewsletter(msg.key?.remoteJid)) {
+                            logger.debug('📰 Skipping newsletter message');
+                            continue;
+                        }
+                    }
+                }
+                
                 await this.messageHandler.handleMessages(messageUpdate);
                 
                 // Small delay to prevent overwhelming the system
