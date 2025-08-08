@@ -41,18 +41,6 @@ class YouTubeModule {
                     errorText: '❌ *YouTube MP4 Download Failed*'
                 },
                 execute: this.downloadMP4.bind(this)
-            },
-            {
-                name: 'yt-info',
-                description: 'Gets information about a YouTube video.',
-                usage: '.ytinfo <url>',
-                aliases: ['ytinfo'],
-                permissions: 'public',
-                ui: {
-                    processingText: '⏳ *Fetching YouTube Video Info...*\n\n🔄 Working on your request...',
-                    errorText: '❌ *Failed to fetch video info*'
-                },
-                execute: this.getVideoInfo.bind(this)
             }
         ];
     }
@@ -216,44 +204,7 @@ class YouTubeModule {
         }
     }
 
-    /**
-     * Gets information about a YouTube video without downloading.
-     * @param {object} msg - The message object from the bot.
-     * @param {string[]} params - The parameters passed with the command.
-     * @returns {Promise<string>} The formatted video information.
-     */
-    async getVideoInfo(msg, params) {
-        const url = params[0];
-        if (!url) return 'Please provide a YouTube URL.';
 
-        try {
-            // Try to get info using mp3 format first (usually faster)
-            const result = await this._fetchYouTubeData(url, 'mp3', 'audio');
-            
-            if (!result.status || !result.result) {
-                throw new Error('Invalid API response');
-            }
-
-            const data = result.result;
-            
-            let response = `╭  ✦ YouTube Video Info ✦  ╮\n\n` +
-                          `*◦ Title:* ${data.title || 'Unknown Title'}\n` +
-                          `*◦ Type:* ${data.type || 'Unknown'}\n` +
-                          `*◦ Format:* ${data.format || 'Standard'}`;
-            
-            // Add thumbnail if available
-            if (data.cover) {
-                response += `\n*◦ Thumbnail:* ${data.cover}`;
-            }
-            
-            response += `\n\n*Use .ytmp3 or .yt to download this video.*`;
-            
-            return response;
-        } catch (error) {
-            console.error('YouTube info fetch error:', error);
-            return `❌ Failed to fetch video information: ${error.message}`;
-        }
-    }
 }
 
 module.exports = YouTubeModule;
