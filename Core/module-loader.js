@@ -2,7 +2,6 @@ const path = require('path');
 const fs = require('fs-extra');
 const logger = require('./logger');
 const config = require('../config');
-const helpers = require('../utils/helpers');
 // Temporary in-memory store; replace with DB for persistence
 const helpPreferences = new Map();
 class ModuleLoader {
@@ -423,29 +422,14 @@ await context.bot.sendMessage(context.sender, { text: helpText.trim() });
 
                     const ui = cmd.ui || {};
 
-                    // Only wrap commands that have UI config (structured modules)
-const shouldWrap = cmd.ui && (cmd.autoWrap !== false);
-const wrappedCmd = shouldWrap ? {
-    ...cmd,
-    execute: async (msg, params, context) => {
-        await helpers.smartErrorRespond(context.bot, msg, {
-            processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
-            errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
-            actionFn: async () => {
-                return await cmd.execute(msg, params, context);
-            }
-        });
-    }
-} : cmd; // Use original command without wrapping
-
-
-                    this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
+                    // Register command without wrapping
+                    this.bot.messageHandler.registerCommandHandler(cmd.name, cmd);
 
                     // Register aliases if they exist
                     if (cmd.aliases && Array.isArray(cmd.aliases)) {
                         for (const alias of cmd.aliases) {
                             if (alias && typeof alias === 'string') {
-                                this.bot.messageHandler.registerCommandHandler(alias, wrappedCmd);
+                                this.bot.messageHandler.registerCommandHandler(alias, cmd);
                                 logger.debug(`📝 Registered alias: ${alias} -> ${cmd.name}`);
                             }
                         }
