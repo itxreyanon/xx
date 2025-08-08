@@ -260,32 +260,46 @@ class DownloaderModule {
      * @param {string[]} params - The parameters passed with the command.
      * @returns {Promise<string>} The formatted result string or empty if media is sent.
      */
-    async downloadTwitter(msg, params) {
-        const url = params[0];
-        if (!url) return 'Please provide a Twitter/X URL.';
-
-        try {
-            const result = await this._fetchDownload('twitterv2', url);
-            const data = result.data;
-
-            if (!data.media || !data.media[0] || !data.media[0].videos || data.media[0].videos.length === 0) {
-                return 'This tweet does not contain a video.';
-            }
-
-            const bestVideo = data.media[0].videos.pop();
-            const caption = `╭  ✦ Twitter Download ✦  ╮\n\n` +
-                           `*◦ Author:* @${data.author.username}\n` +
-                           `*◦ Description:* ${data.description.split('https://')[0]}\n` +
-                           `*◦ Views:* ${this._convertMiles(data.view)}\n` +
-                           `*◦ Likes:* ${this._convertMiles(data.favorite)}\n` +
-                           `*◦ Retweets:* ${this._convertMiles(data.retweet)}`;
-
-            return this._downloadAndSendMedia(msg, bestVideo.url, caption, 'video');
-        } catch (error) {
-            return `❌ Failed to download Twitter video: ${error.message}`;
+async downloadTwitter(msg, params) {
+    const url = params[0];
+    if (!url) return 'Please provide a Twitter/X URL.';
+    
+    try {
+        const result = await this._fetchDownload('twitterv2', url);
+        const data = result.data;
+        
+        if (!data.media || !data.media[0]) {
+            return 'This tweet does not contain any media.';
         }
+        
+        const media = data.media[0];
+        const caption = `╭  ✦ Twitter Download ✦  ╮\n\n` +
+                       `*◦ Author:* @${data.author.username}\n` +
+                       `*◦ Description:* ${data.description.split('https://')[0]}\n` +
+                       `*◦ Views:* ${this._convertMiles(data.view)}\n` +
+                       `*◦ Likes:* ${this._convertMiles(data.favorite)}\n` +
+                       `*◦ Retweets:* ${this._convertMiles(data.retweet)}`;
+        
+        // Handle different media types
+        if (media.type === 'video' && media.videos && media.videos.length > 0) {
+            const bestVideo = media.videos[media.videos.length - 1]; // Get the last (highest quality) video
+            return this._downloadAndSendMedia(msg, bestVideo.url, caption, 'video');
+        } 
+        else if (media.type === 'photo' && media.image) {
+            return this._downloadAndSendMedia(msg, media.image, caption, 'image');
+        }
+        else if (media.type === 'gif' && media.videos && media.videos.length > 0) {
+            const gifVideo = media.videos[0];
+            return this._downloadAndSendMedia(msg, gifVideo.url, caption, 'video');
+        }
+        else {
+            return 'Unsupported media type or media not available.';
+        }
+        
+    } catch (error) {
+        return `❌ Failed to download Twitter media: ${error.message}`;
     }
-
+}
 
 
 }
