@@ -19,10 +19,6 @@ class FileInfoModule {
                 description: 'Get file information',
                 usage: '.fileinfo (reply to file/media)',
                 permissions: 'public',
-                ui: {
-                    processingText: '📁 *Analyzing File...*\n\n⏳ Getting file information...',
-                    errorText: '❌ *File Analysis Failed*'
-                },
                 execute: this.getFileInfo.bind(this)
             },
             {
@@ -30,10 +26,6 @@ class FileInfoModule {
                 description: 'Get detailed media information',
                 usage: '.mediainfo (reply to media)',
                 permissions: 'public',
-                ui: {
-                    processingText: '🎬 *Analyzing Media...*\n\n⏳ Extracting media details...',
-                    errorText: '❌ *Media Analysis Failed*'
-                },
                 execute: this.getMediaInfo.bind(this)
             },
             {
@@ -41,10 +33,6 @@ class FileInfoModule {
                 description: 'Get file hash (MD5, SHA256)',
                 usage: '.hash (reply to file)',
                 permissions: 'public',
-                ui: {
-                    processingText: '🔐 *Calculating Hash...*\n\n⏳ Computing file checksums...',
-                    errorText: '❌ *Hash Calculation Failed*'
-                },
                 execute: this.getFileHash.bind(this)
             }
         ];
@@ -60,14 +48,18 @@ class FileInfoModule {
         const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
         
         if (!quotedMsg) {
-            return '❌ *File Information*\n\nPlease reply to a file, image, video, audio, or document.\n\n💡 Usage: Reply to any media and type `.fileinfo`';
+            return await context.bot.sendMessage(context.sender, {
+                text: '❌ *File Information*\n\nPlease reply to a file, image, video, audio, or document.\n\n💡 Usage: Reply to any media and type `.fileinfo`'
+            });
         }
 
         try {
             const mediaInfo = this.extractMediaInfo(quotedMsg);
             
             if (!mediaInfo) {
-                return '❌ *No Media Found*\n\nThe replied message doesn\'t contain any media files.';
+                return await context.bot.sendMessage(context.sender, {
+                    text: '❌ *No Media Found*\n\nThe replied message doesn\'t contain any media files.'
+                });
             }
 
             let infoText = `📁 *File Information*\n\n`;
@@ -108,10 +100,14 @@ class FileInfoModule {
 
             infoText += `\n⏰ Analyzed at ${new Date().toLocaleTimeString()}`;
 
-            return infoText;
+            await context.bot.sendMessage(context.sender, {
+                text: infoText
+            });
 
         } catch (error) {
-            throw new Error(`File analysis failed: ${error.message}`);
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ File analysis failed: ${error.message}`
+            });
         }
     }
 

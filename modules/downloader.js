@@ -1,123 +1,128 @@
 class DownloaderModule {
-    /**
-     * Constructor for the DownloaderModule.
-     * @param {object} bot - The main bot instance.
-     */
     constructor(bot) {
         this.bot = bot;
         this.name = 'downloader';
         this.metadata = {
-            description: 'Downloads media from various platforms like TikTok, Instagram, YouTube, etc.',
-            version: '1.0.0',
-            author: 'Arshman', 
+            description: 'Downloads media from various platforms like TikTok, Instagram, YouTube, Spotify, etc.',
+            version: '2.0.0',
+            author: 'HyperWa Team', 
             category: 'utility'
         };
 
-        // Base URL for the downloader API
-        this.apiBaseUrl = 'https://delirius-apiofc.vercel.app/download';
+        // API endpoints
+        this.delirusApi = 'https://delirius-apiofc.vercel.app/download';
+        this.nekoApi = 'https://api.nekorinn.my.id/downloader';
+        this.spotifyApi = 'https://api.nekorinn.my.id/downloader/spotify';
 
-        // All the commands supported by this module
         this.commands = [
+            // Social Media Downloads
             {
                 name: 'tiktok',
-                description: 'Downloads a TikTok video.',
+                description: 'Downloads a TikTok video',
                 usage: '.tiktok <url>',
+                aliases: ['tt'],
                 permissions: 'public',
-                ui: {
-                    processingText: '⏳ *Processing TikTok Download...*\n\n🔄 Working on your request...',
-                    errorText: '❌ *TikTok Download Failed*'
-                },
                 execute: this.downloadTikTok.bind(this)
             },
             {
                 name: 'instagram',
-                description: 'Downloads Instagram content (post or story).',
+                description: 'Downloads Instagram content (post or story)',
                 usage: '.instagram <url>',
+                aliases: ['ig', 'insta'],
                 permissions: 'public',
-                ui: {
-                    processingText: '⏳ *Processing Instagram Download...*\n\n🔄 Working on your request...',
-                    errorText: '❌ *Instagram Download Failed*'
-                },
                 execute: this.downloadInstagram.bind(this)
             },
             {
-                name: 'soundcloud',
-                description: 'Downloads a track from SoundCloud.',
-                usage: '.soundcloud <url>',
-                permissions: 'public',
-                ui: {
-                    processingText: '⏳ *Processing SoundCloud Download...*\n\n🔄 Working on your request...',
-                    errorText: '❌ *SoundCloud Download Failed*'
-                },
-                execute: this.downloadSoundCloud.bind(this)
-            },
-            {
                 name: 'twitter',
-                description: 'Downloads a video from Twitter / X.com.',
+                description: 'Downloads a video from Twitter / X.com',
                 usage: '.twitter <url>',
+                aliases: ['x'],
                 permissions: 'public',
-                ui: {
-                    processingText: '⏳ *Processing Twitter Download...*\n\n🔄 Working on your request...',
-                    errorText: '❌ *Twitter Download Failed*'
-                },
                 execute: this.downloadTwitter.bind(this)
             },
-
             {
                 name: 'facebook',
-                description: 'Downloads a video from Facebook.',
+                description: 'Downloads a video from Facebook',
                 usage: '.facebook <url>',
+                aliases: ['fb'],
                 permissions: 'public',
-                ui: {
-                    processingText: '⏳ *Processing Facebook Download...*\n\n🔄 Working on your request...',
-                    errorText: '❌ *Facebook Download Failed*'
-                },
                 execute: this.downloadFacebook.bind(this)
+            },
+            
+            // Music Downloads
+            {
+                name: 'spotify',
+                description: 'Downloads a Spotify track as MP3 audio file',
+                usage: '.spotify <url>',
+                aliases: ['sp', 'spotdl'],
+                permissions: 'public',
+                execute: this.downloadSpotify.bind(this)
+            },
+            {
+                name: 'soundcloud',
+                description: 'Downloads a track from SoundCloud',
+                usage: '.soundcloud <url>',
+                aliases: ['sc'],
+                permissions: 'public',
+                execute: this.downloadSoundCloud.bind(this)
+            },
+            
+            // YouTube Downloads
+            {
+                name: 'yt-mp3',
+                description: 'Downloads a YouTube video as MP3 audio file',
+                usage: '.ytmp3 <url>',
+                aliases: ['ytmp3', 'ytaudio'],
+                permissions: 'public',
+                execute: this.downloadYouTubeMP3.bind(this)
+            },
+            {
+                name: 'yt-mp4',
+                description: 'Downloads a YouTube video as MP4 video file',
+                usage: '.yt <url>',
+                aliases: ['yt', 'ytvideo'],
+                permissions: 'public',
+                execute: this.downloadYouTubeMP4.bind(this)
             }
-
         ];
     }
 
-    /**
-     * A helper function to convert numbers into a more readable format (e.g., 1000 -> 1k).
-     * @param {number|string} num - The number to convert.
-     * @returns {string} The formatted number.
-     */
+    // Helper function to convert numbers into readable format
     _convertMiles(num) {
         const number = Number(num);
-        if (isNaN(number)) return num; // Return original if not a number
+        if (isNaN(number)) return num;
         if (number < 1000) return number.toString();
         if (number < 1000000) return (number / 1000).toFixed(1) + 'k';
         return (number / 1000000).toFixed(1) + 'M';
     }
 
-    /**
-     * Generic download handler to fetch data from the API.
-     * @param {string} endpoint - The API endpoint for the specific download.
-     * @param {string} url - The URL of the media to download.
-     * @returns {Promise<object>} The JSON response from the API.
-     */
-    async _fetchDownload(endpoint, url) {
-        const apiUrl = `${this.apiBaseUrl}/${endpoint}?url=${encodeURIComponent(url)}`;
-        const response = await fetch(apiUrl);
-        if (!response.ok) {
-            throw new Error(`API request failed with status ${response.status}`);
-        }
-        return response.json();
+    // Helper function to format duration
+    _formatDuration(seconds) {
+        if (!seconds || isNaN(seconds)) return 'Unknown';
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
     }
 
-    /**
-     * Helper function to download media from a URL and send it via Baileys.
-     * @param {object} msg - The message object from the bot.
-     * @param {string} mediaUrl - The URL of the media to download.
-     * @param {string} caption - The caption to send with the media.
-     * @param {string} type - The type of media ('video', 'audio', 'image').
-     * @returns {Promise<string>} Fallback message if sending fails.
-     */
-    async _downloadAndSendMedia(msg, mediaUrl, caption, type) {
+    // Generic API request handler
+    async _fetchFromApi(url) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`API request failed with status ${response.status}`);
+            }
+            return await response.json();
+        } catch (error) {
+            throw new Error(`API request failed: ${error.message}`);
+        }
+    }
+
+    // Helper function to download and send media
+    async _downloadAndSendMedia(msg, mediaUrl, caption, type, context) {
         try {
             const response = await fetch(mediaUrl);
             if (!response.ok) throw new Error(`Failed to fetch media: ${response.status}`);
+            
             const buffer = await response.arrayBuffer();
             const bufferData = Buffer.from(buffer);
 
@@ -144,164 +149,329 @@ class DownloaderModule {
                 throw new Error('Unsupported media type');
             }
 
-            await this.bot.sendMessage(msg.key.remoteJid, message);
-            return ''; // No text response needed since media is sent
+            await context.bot.sendMessage(context.sender, message);
+            
         } catch (error) {
-            console.error(`Error sending ${type}:`, error);
-            return `${caption}\n\n*Failed to send media, here's the URL instead:* ${mediaUrl}`;
+            await context.bot.sendMessage(context.sender, {
+                text: `${caption}\n\n❌ Failed to send media: ${error.message}\n🔗 Direct URL: ${mediaUrl}`
+            });
         }
     }
 
-    /**
-     * Executes the TikTok download command.
-     * @param {object} msg - The message object from the bot.
-     * @param {string[]} params - The parameters passed with the command.
-     * @returns {Promise<string>} The formatted result string or empty if media is sent.
-     */
-    async downloadTikTok(msg, params) {
+    // TikTok Download
+    async downloadTikTok(msg, params, context) {
+        if (params.length === 0) {
+            return await context.bot.sendMessage(context.sender, {
+                text: '❌ Please provide a TikTok URL.\n\n💡 Usage: `.tiktok <url>`'
+            });
+        }
+
         const url = params[0];
-        if (!url) return 'Please provide a TikTok URL.';
-
-        const result = await this._fetchDownload('tiktok', url);
-        const data = result.data;
-
-        const caption = `╭  ✦ TikTok Download ✦  ╮\n\n` +
-                       `*◦ Name:* ${data.author.nickname}\n` +
-                       `*◦ Username:* ${data.author.username}\n` +
-                       `*◦ Duration:* ${data.duration}s\n` +
-                       `*◦ Plays:* ${this._convertMiles(data.repro)}\n` +
-                       `*◦ Likes:* ${this._convertMiles(data.like)}\n` +
-                       `*◦ Shares:* ${this._convertMiles(data.share)}\n` +
-                       `*◦ Comments:* ${this._convertMiles(data.comment)}\n` +
-                       `*◦ Downloads:* ${this._convertMiles(data.download)}\n\n` +
-                       `╭  ✦ Music Info ✦  ╮\n\n` +
-                       `*◦ Music:* ${data.music.title}\n` +
-                       `*◦ Author:* ${data.music.author}\n` +
-                       `*◦ Duration:* ${data.music.duration}s`;
-
-        const mediaUrl = data.meta.media[0].hd || data.meta.media[0].org;
-        return this._downloadAndSendMedia(msg, mediaUrl, caption, 'video');
-    }
-
-    /**
-     * Executes the Instagram download command.
-     * @param {object} msg - The message object from the bot.
-     * @param {string[]} params - The parameters passed with the command.
-     * @returns {Promise<string>} The formatted result string.
-     */
-    async downloadInstagram(msg, params) {
-        const url = params[0];
-        if (!url) return 'Please provide an Instagram URL.';
-
-        const endpoint = url.includes('/stories/') ? 'igstories' : 'instagram';
-        const result = await this._fetchDownload(endpoint, url);
-        const media = result.data;
-
-        let responseText = `*亗 I N S T A G R A M*\n\n`;
-        media.forEach((item, index) => {
-            responseText += `*› Media ${index + 1} [${item.type}]:* ${item.url}\n`;
-        });
-
-        return responseText;
-    }
-
-    async downloadSoundCloud(msg, params) {
-        const url = params[0];
-        if (!url) return 'Please provide a SoundCloud URL.';
-
-        const result = await this._fetchDownload('soundcloud', url);
-        const res = result.data;
-
-        const caption = `╭  ✦ Soundcloud Download ✦  ╮\n\n` +
-                       `*◦ Title:* ${res.title}\n` +
-                       `*◦ Artist:* ${res.author}\n` +
-                       `*◦ Plays:* ${this._convertMiles(res.playbacks)}\n` +
-                       `*◦ Likes:* ${this._convertMiles(res.likes)}\n` +
-                       `*◦ Comments:* ${this._convertMiles(res.comments)}`;
-
-        return this._downloadAndSendMedia(msg, res.download, caption, 'audio');
-    }
-
-
-    /**
-     * Executes the Facebook download command.
-     * @param {object} msg - The message object from the bot.
-     * @param {string[]} params - The parameters passed with the command.
-     * @returns {Promise<string>} The formatted result string or empty if media is sent.
-     */
-    async downloadFacebook(msg, params) {
-        const url = params[0];
-        if (!url) return 'Please provide a Facebook URL.';
-
+        
         try {
-            const result = await this._fetchDownload('facebook', url);
-            if (!result.urls || !Array.isArray(result.urls) || result.urls.length === 0) {
-                throw new Error('Invalid API response: No media URLs found');
+            const result = await this._fetchFromApi(`${this.delirusApi}/tiktok?url=${encodeURIComponent(url)}`);
+            const data = result.data;
+
+            const caption = `╭  ✦ TikTok Download ✦  ╮\n\n` +
+                           `*◦ Name:* ${data.author.nickname}\n` +
+                           `*◦ Username:* ${data.author.username}\n` +
+                           `*◦ Duration:* ${data.duration}s\n` +
+                           `*◦ Plays:* ${this._convertMiles(data.repro)}\n` +
+                           `*◦ Likes:* ${this._convertMiles(data.like)}\n` +
+                           `*◦ Shares:* ${this._convertMiles(data.share)}\n` +
+                           `*◦ Comments:* ${this._convertMiles(data.comment)}\n` +
+                           `*◦ Downloads:* ${this._convertMiles(data.download)}\n\n` +
+                           `╭  ✦ Music Info ✦  ╮\n\n` +
+                           `*◦ Music:* ${data.music.title}\n` +
+                           `*◦ Author:* ${data.music.author}\n` +
+                           `*◦ Duration:* ${data.music.duration}s`;
+
+            const mediaUrl = data.meta.media[0].hd || data.meta.media[0].org;
+            await this._downloadAndSendMedia(msg, mediaUrl, caption, 'video', context);
+            
+        } catch (error) {
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ Failed to download TikTok video: ${error.message}`
+            });
+        }
+    }
+
+    // Instagram Download
+    async downloadInstagram(msg, params, context) {
+        if (params.length === 0) {
+            return await context.bot.sendMessage(context.sender, {
+                text: '❌ Please provide an Instagram URL.\n\n💡 Usage: `.instagram <url>`'
+            });
+        }
+
+        const url = params[0];
+        
+        try {
+            const endpoint = url.includes('/stories/') ? 'igstories' : 'instagram';
+            const result = await this._fetchFromApi(`${this.delirusApi}/${endpoint}?url=${encodeURIComponent(url)}`);
+            const media = result.data;
+
+            let responseText = `*亗 I N S T A G R A M*\n\n`;
+            
+            for (let i = 0; i < media.length; i++) {
+                const item = media[i];
+                responseText += `*› Media ${i + 1} [${item.type}]:*\n`;
+                
+                if (item.type === 'image') {
+                    await this._downloadAndSendMedia(msg, item.url, `📸 Instagram Image ${i + 1}`, 'image', context);
+                } else if (item.type === 'video') {
+                    await this._downloadAndSendMedia(msg, item.url, `🎥 Instagram Video ${i + 1}`, 'video', context);
+                }
             }
 
-            const caption = `╭  ✦ Facebook video Download ✦  ╮\n\n` +
+            await context.bot.sendMessage(context.sender, {
+                text: `✅ Downloaded ${media.length} Instagram media file(s)`
+            });
+            
+        } catch (error) {
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ Failed to download Instagram content: ${error.message}`
+            });
+        }
+    }
+
+    // Twitter Download
+    async downloadTwitter(msg, params, context) {
+        if (params.length === 0) {
+            return await context.bot.sendMessage(context.sender, {
+                text: '❌ Please provide a Twitter/X URL.\n\n💡 Usage: `.twitter <url>`'
+            });
+        }
+
+        const url = params[0];
+        
+        try {
+            const result = await this._fetchFromApi(`${this.delirusApi}/twitterv2?url=${encodeURIComponent(url)}`);
+            const data = result.data;
+            
+            if (!data.media || !data.media[0]) {
+                return await context.bot.sendMessage(context.sender, {
+                    text: '❌ This tweet does not contain any media.'
+                });
+            }
+            
+            const media = data.media[0];
+            const caption = `╭  ✦ Twitter Download ✦  ╮\n\n` +
+                           `*◦ Author:* @${data.author.username}\n` +
+                           `*◦ Description:* ${data.description.split('https://')[0]}\n` +
+                           `*◦ Views:* ${this._convertMiles(data.view)}\n` +
+                           `*◦ Likes:* ${this._convertMiles(data.favorite)}\n` +
+                           `*◦ Retweets:* ${this._convertMiles(data.retweet)}`;
+            
+            if (media.type === 'video' && media.videos && media.videos.length > 0) {
+                const bestVideo = media.videos[media.videos.length - 1];
+                await this._downloadAndSendMedia(msg, bestVideo.url, caption, 'video', context);
+            } else if (media.type === 'photo' && media.image) {
+                await this._downloadAndSendMedia(msg, media.image, caption, 'image', context);
+            } else if (media.type === 'gif' && media.videos && media.videos.length > 0) {
+                const gifVideo = media.videos[0];
+                await this._downloadAndSendMedia(msg, gifVideo.url, caption, 'video', context);
+            } else {
+                await context.bot.sendMessage(context.sender, {
+                    text: '❌ Unsupported media type or media not available.'
+                });
+            }
+            
+        } catch (error) {
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ Failed to download Twitter media: ${error.message}`
+            });
+        }
+    }
+
+    // Facebook Download
+    async downloadFacebook(msg, params, context) {
+        if (params.length === 0) {
+            return await context.bot.sendMessage(context.sender, {
+                text: '❌ Please provide a Facebook URL.\n\n💡 Usage: `.facebook <url>`'
+            });
+        }
+
+        const url = params[0];
+        
+        try {
+            const result = await this._fetchFromApi(`${this.delirusApi}/facebook?url=${encodeURIComponent(url)}`);
+            
+            if (!result.urls || !Array.isArray(result.urls) || result.urls.length === 0) {
+                throw new Error('No media URLs found in API response');
+            }
+
+            const caption = `╭  ✦ Facebook Download ✦  ╮\n\n` +
                            `*◦ Title:* ${result.title || 'No title available'}`;
 
-            // Prefer HD video if available
             const mediaUrl = result.urls[0].hd || result.urls[1]?.sd;
             if (!mediaUrl) {
-                throw new Error('No valid media URL found in API response');
+                throw new Error('No valid media URL found');
             }
 
-            return this._downloadAndSendMedia(msg, mediaUrl, caption, 'video');
+            await this._downloadAndSendMedia(msg, mediaUrl, caption, 'video', context);
+            
         } catch (error) {
-            return `❌ Failed to download Facebook video: ${error.message}`;
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ Failed to download Facebook video: ${error.message}`
+            });
         }
     }
 
-    /**
-     * Executes the Twitter download command.
-     * @param {object} msg - The message object from the bot.
-     * @param {string[]} params - The parameters passed with the command.
-     * @returns {Promise<string>} The formatted result string or empty if media is sent.
-     */
-async downloadTwitter(msg, params) {
-    const url = params[0];
-    if (!url) return 'Please provide a Twitter/X URL.';
-    
-    try {
-        const result = await this._fetchDownload('twitterv2', url);
-        const data = result.data;
-        
-        if (!data.media || !data.media[0]) {
-            return 'This tweet does not contain any media.';
+    // Spotify Download
+    async downloadSpotify(msg, params, context) {
+        if (params.length === 0) {
+            return await context.bot.sendMessage(context.sender, {
+                text: '❌ Please provide a Spotify URL.\n\n💡 Usage: `.spotify <url>`'
+            });
         }
+
+        const url = params[0];
         
-        const media = data.media[0];
-        const caption = `╭  ✦ Twitter Download ✦  ╮\n\n` +
-                       `*◦ Author:* @${data.author.username}\n` +
-                       `*◦ Description:* ${data.description.split('https://')[0]}\n` +
-                       `*◦ Views:* ${this._convertMiles(data.view)}\n` +
-                       `*◦ Likes:* ${this._convertMiles(data.favorite)}\n` +
-                       `*◦ Retweets:* ${this._convertMiles(data.retweet)}`;
-        
-        // Handle different media types
-        if (media.type === 'video' && media.videos && media.videos.length > 0) {
-            const bestVideo = media.videos[media.videos.length - 1]; // Get the last (highest quality) video
-            return this._downloadAndSendMedia(msg, bestVideo.url, caption, 'video');
-        } 
-        else if (media.type === 'photo' && media.image) {
-            return this._downloadAndSendMedia(msg, media.image, caption, 'image');
+        if (!this._isValidSpotifyUrl(url)) {
+            return await context.bot.sendMessage(context.sender, {
+                text: '❌ Please provide a valid Spotify URL.'
+            });
         }
-        else if (media.type === 'gif' && media.videos && media.videos.length > 0) {
-            const gifVideo = media.videos[0];
-            return this._downloadAndSendMedia(msg, gifVideo.url, caption, 'video');
+
+        try {
+            const result = await this._fetchFromApi(`${this.spotifyApi}?url=${encodeURIComponent(url)}`);
+            
+            if (!result.status || !result.result) {
+                throw new Error('Invalid API response');
+            }
+
+            const data = result.result;
+            
+            const caption = `╭  ✦ Spotify Download ✦  ╮\n\n` +
+                           `*◦ Title:* ${data.title || 'Unknown Title'}\n` +
+                           `*◦ Artist:* ${data.artist || 'Unknown Artist'}\n` +
+                           `*◦ Duration:* ${data.duration || 'Unknown'}\n` +
+                           `*◦ Quality:* MP3\n\n` +
+                           `*Downloaded from Spotify* 🎵`;
+
+            if (data.downloadUrl) {
+                await this._downloadAndSendMedia(msg, data.downloadUrl, caption, 'audio', context);
+            } else {
+                throw new Error('No download URL provided by API');
+            }
+            
+        } catch (error) {
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ Failed to download Spotify track: ${error.message}`
+            });
         }
-        else {
-            return 'Unsupported media type or media not available.';
-        }
-        
-    } catch (error) {
-        return `❌ Failed to download Twitter media: ${error.message}`;
     }
-}
 
+    // SoundCloud Download
+    async downloadSoundCloud(msg, params, context) {
+        if (params.length === 0) {
+            return await context.bot.sendMessage(context.sender, {
+                text: '❌ Please provide a SoundCloud URL.\n\n💡 Usage: `.soundcloud <url>`'
+            });
+        }
 
+        const url = params[0];
+        
+        try {
+            const result = await this._fetchFromApi(`${this.delirusApi}/soundcloud?url=${encodeURIComponent(url)}`);
+            const res = result.data;
+
+            const caption = `╭  ✦ Soundcloud Download ✦  ╮\n\n` +
+                           `*◦ Title:* ${res.title}\n` +
+                           `*◦ Artist:* ${res.author}\n` +
+                           `*◦ Plays:* ${this._convertMiles(res.playbacks)}\n` +
+                           `*◦ Likes:* ${this._convertMiles(res.likes)}\n` +
+                           `*◦ Comments:* ${this._convertMiles(res.comments)}`;
+
+            await this._downloadAndSendMedia(msg, res.download, caption, 'audio', context);
+            
+        } catch (error) {
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ Failed to download SoundCloud track: ${error.message}`
+            });
+        }
+    }
+
+    // YouTube MP3 Download
+    async downloadYouTubeMP3(msg, params, context) {
+        if (params.length === 0) {
+            return await context.bot.sendMessage(context.sender, {
+                text: '❌ Please provide a YouTube URL.\n\n💡 Usage: `.ytmp3 <url>`'
+            });
+        }
+
+        const url = params[0];
+        
+        try {
+            const result = await this._fetchFromApi(`${this.nekoApi}/youtube?url=${encodeURIComponent(url)}&format=128&type=audio`);
+            
+            if (!result.status || !result.result) {
+                throw new Error('Invalid API response');
+            }
+
+            const data = result.result;
+            
+            const caption = `╭  ✦ YouTube MP3 Download ✦  ╮\n\n` +
+                           `*◦ Title:* ${data.title || 'Unknown Title'}\n` +
+                           `*◦ Quality:* ${data.format || '128kbps'}\n` +
+                           `*◦ Type:* ${data.type || 'audio'}`;
+
+            if (data.downloadUrl) {
+                await this._downloadAndSendMedia(msg, data.downloadUrl, caption, 'audio', context);
+            } else {
+                throw new Error('No download URL provided by API');
+            }
+            
+        } catch (error) {
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ Failed to download YouTube MP3: ${error.message}`
+            });
+        }
+    }
+
+    // YouTube MP4 Download
+    async downloadYouTubeMP4(msg, params, context) {
+        if (params.length === 0) {
+            return await context.bot.sendMessage(context.sender, {
+                text: '❌ Please provide a YouTube URL.\n\n💡 Usage: `.yt <url>`'
+            });
+        }
+
+        const url = params[0];
+        
+        try {
+            const result = await this._fetchFromApi(`${this.nekoApi}/youtube?url=${encodeURIComponent(url)}&format=480&type=video`);
+            
+            if (!result.status || !result.result) {
+                throw new Error('Invalid API response');
+            }
+
+            const data = result.result;
+            
+            const caption = `╭  ✦ YouTube MP4 Download ✦  ╮\n\n` +
+                           `*◦ Title:* ${data.title || 'Unknown Title'}\n` +
+                           `*◦ Quality:* ${data.format || '480p'}\n` +
+                           `*◦ Type:* ${data.type || 'video'}`;
+
+            if (data.downloadUrl) {
+                await this._downloadAndSendMedia(msg, data.downloadUrl, caption, 'video', context);
+            } else {
+                throw new Error('No download URL provided by API');
+            }
+            
+        } catch (error) {
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ Failed to download YouTube MP4: ${error.message}`
+            });
+        }
+    }
+
+    // Helper function to validate Spotify URLs
+    _isValidSpotifyUrl(url) {
+        const spotifyRegex = /^https?:\/\/(open\.)?spotify\.com\/(track|album|playlist|artist)\/[a-zA-Z0-9]+(\?.*)?$/;
+        return spotifyRegex.test(url);
+    }
 }
 
 module.exports = DownloaderModule;

@@ -20,10 +20,6 @@ class TranslateModule {
                 description: 'Translates text. Can be used directly or by replying to a message.',
                 usage: '.tr <to_lang> <text> OR reply with .tr [to_lang]',
                 permissions: 'public',
-                ui: {
-                    processingText: '⏳ *Translating...*',
-                    errorText: '❌ *Translation Failed*'
-                },
                 // Bind the execute function to the current class instance
                 execute: this.translateCommand.bind(this)
             }
@@ -36,7 +32,6 @@ class TranslateModule {
      * @param {object} msg - The message object from the chat, which may contain a reply.
      * @param {string[]} params - The parameters passed to the command.
      * @param {object} context - The context of the command execution.
-     * @returns {string} The result of the translation or an error message.
      */
     async translateCommand(msg, params, context) {
         let targetLanguage;
@@ -51,7 +46,9 @@ class TranslateModule {
                 targetLanguage = params[0] || 'en'; // Default to 'en' if no lang is given
             } else {
                 // If it's a reply to something without text (image, sticker), return an error.
-                return `❌ *Reply Error*\n\nI can only translate messages that contain text.`;
+                return await context.bot.sendMessage(context.sender, {
+                    text: `❌ *Reply Error*\n\nI can only translate messages that contain text.`
+                });
             }
         }
         // --- Direct Command Logic ---
@@ -63,18 +60,25 @@ class TranslateModule {
         // --- Invalid Usage ---
         // If neither of the above conditions are met, the usage is incorrect.
         else {
-            return `❌ *Invalid Usage*\n\n*Reply:* \`.tr [lang]\`\n*Direct:* \`.tr <lang> <text>\``;
+            return await context.bot.sendMessage(context.sender, {
+                text: `❌ *Invalid Usage*\n\n*Reply:* \`.tr [lang]\`\n*Direct:* \`.tr <lang> <text>\``
+            });
         }
 
         // --- Perform Translation ---
         // This part only runs if textToTranslate and targetLanguage were successfully set.
         try {
             const translationResult = await translate(textToTranslate, { to: targetLanguage });
-            const result = `*Tr*: ${translationResult.text}`;
-            return result;
+            
+            await context.bot.sendMessage(context.sender, {
+                text: `*Translation*: ${translationResult.text}`
+            });
+            
         } catch (error) {
             console.error('Translation module error:', error);
-            return `❌ *Translation Failed*\n\nAn error occurred. Please ensure the language code \`${targetLanguage}\` is valid and try again.`;
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ *Translation Failed*\n\nAn error occurred. Please ensure the language code \`${targetLanguage}\` is valid and try again.`
+            });
         }
     }
 

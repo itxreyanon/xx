@@ -5,26 +5,26 @@ Advanced WhatsApp Userbot with Telegram Bridge, Smart Command Processing, and Mo
 ## ✨ Features
 
 ### 🎯 Core Features
-- **Modular Architecture** - Load/unload modules dynamically
+- **Modular Architecture** - Load/unload modules dynamically with hot-reload support
 - **QR Code to Telegram** - Automatically sends QR codes to Telegram for easy scanning
-- **Smart Command Processing** - Automatic emoji reactions to commands (⏳ → ✅/❌), 
-                                 Processing messages get edited with final results.
+- **Smart Command Processing** - Automatic emoji reactions to commands (⏳ → ✅/❌)
 - **Telegram Bridge** - Full bidirectional sync between WhatsApp and Telegram
-- **Rate Limiting** - Prevent spam and abuse
-- **Database Integration** - MongoDB for persistent data
+- **Rate Limiting** - Prevent spam and abuse with configurable limits
+- **Database Integration** - MongoDB for persistent data storage
 - **Contact Syncing** - Sync WhatsApp contacts with Telegram topics
 - **Media Support** - Full media sync between platforms
-- **Error Handling** - Comprehensive error handling with user feedback
+- **Comprehensive Error Handling** - Robust error handling with user feedback
 
 ## 🛡️ Security Features
 
 ### Rate Limiting
 - Maximum commands per minute per user
 - Automatic cooldown periods
-- Configurable limits
+- Configurable limits per command
 
 ### Permission System
 - Owner-only commands
+- Admin-level permissions
 - Public/private mode toggle
 - User blocking system
 
@@ -40,16 +40,14 @@ Commands automatically get reactions:
 - ⏳ When command starts processing
 - ✅ When command completes successfully
 - ❌ When command fails
-- ❓ For unknown commands
+- ❓ For unknown commands (if enabled)
 
-### Message Editing
-Processing messages are automatically edited with results:
-1. User sends command
-2. Bot reacts with ⏳ and sends "Processing..." message
-3. Command executes
-4. Processing message gets edited with final result
-5. Bot reacts with ✅ or ❌
-
+### Module System
+- **Hot-reload** - Load/unload modules without restarting
+- **Custom modules** - Upload .js files to add new functionality
+- **System modules** - Core functionality modules
+- **Command registration** - Automatic command and alias registration
+- **Message hooks** - Pre/post processing hooks for modules
 
 ## 🔗 Telegram Bridge Features
 
@@ -106,6 +104,7 @@ Processing messages are automatically edited with results:
     }
 }
 ```
+
 ## 🎮 Commands
 
 ### Core Commands
@@ -119,6 +118,13 @@ Processing messages are automatically edited with results:
 - `.ulm <module>` - Unload module
 - `.rlm <module>` - Reload module
 - `.modules` - List all loaded modules
+
+### System Commands
+- `.restart` - Restart the bot (owner only)
+- `.logs` - Send or display bot logs
+- `.mode` - Toggle bot mode (public/private)
+- `.ban/.unban` - User management
+- `.broadcast` - Send message to all chats
 
 ## 📦 Installation
 
@@ -134,11 +140,16 @@ npm install
 ```
 
 3. **Configure the bot**
-Edit `config.js` with your settings:
-- MongoDB URI
-- Telegram Bot Token
-- Telegram Chat ID
-- API Keys (optional)
+Create a `.env` file with your settings:
+```env
+BOT_OWNER=923111111111@s.whatsapp.net
+MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/
+MONGO_DB_NAME=HyperWaDB
+TG_BOT_TOKEN=1234567890:ABCDEFabcdef
+TG_BOT_PASSWORD=1122
+TG_CHAT_ID=-1001234567890
+ADMINS=923111111111,923222222222
+```
 
 4. **Start the bot**
 ```bash
@@ -150,10 +161,12 @@ npm start
 ### Bot Settings
 ```javascript
 bot: {
-    name: 'HyperWa Userbot',
-    company: 'HyperWa Technologies',
+    name: 'HyperWa',
+    company: 'Dawium Technologies',
     prefix: '.',
-    version: '3.0.0'
+    version: '2.0.0',
+    owner: process.env.BOT_OWNER,
+    clearAuthOnStart: false
 }
 ```
 
@@ -161,12 +174,11 @@ bot: {
 ```javascript
 features: {
     mode: 'public', // public or private
-    autoViewStatus: true,
     customModules: true,
     rateLimiting: true,
-    smartProcessing: true, // Enhanced command processing
-    autoReact: true, // Auto react to commands
-    editMessages: true // Edit processing messages
+    telegramBridge: true,
+    respondToUnknownCommands: false,
+    sendPermissionError: false
 }
 ```
 
@@ -174,9 +186,8 @@ features: {
 ```javascript
 telegram: {
     enabled: true,
-    botToken: 'YOUR_BOT_TOKEN',
-    chatId: 'YOUR_CHAT_ID',
-    sendQRCode: true, // Send QR codes to Telegram
+    botToken: process.env.TG_BOT_TOKEN,
+    chatId: process.env.TG_CHAT_ID,
     features: {
         topics: true,
         mediaSync: true,
@@ -187,6 +198,146 @@ telegram: {
     }
 }
 ```
+
+## 🔧 Creating Modules
+
+### Basic Module Structure
+```javascript
+class ExampleModule {
+    constructor(bot) {
+        this.bot = bot;
+        this.name = 'example';
+        this.metadata = {
+            description: 'Example module for demonstration',
+            version: '1.0.0',
+            author: 'Your Name',
+            category: 'utility'
+        };
+        this.commands = [
+            {
+                name: 'example',
+                description: 'Example command',
+                usage: '.example <text>',
+                permissions: 'public',
+                execute: this.exampleCommand.bind(this)
+            }
+        ];
+    }
+
+    async exampleCommand(msg, params, context) {
+        try {
+            // Your command logic here
+            const result = `✅ Example Result: ${params.join(' ')}`;
+            
+            await context.bot.sendMessage(context.sender, {
+                text: result
+            });
+        } catch (error) {
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ Command failed: ${error.message}`
+            });
+        }
+    }
+
+    // Optional: Initialize module
+    async init() {
+        console.log('Example module initialized');
+    }
+
+    // Optional: Cleanup on unload
+    async destroy() {
+        console.log('Example module destroyed');
+    }
+}
+
+module.exports = ExampleModule;
+```
+
+### Advanced Module Features
+
+#### Database Integration
+```javascript
+class DatabaseModule {
+    constructor(bot) {
+        this.bot = bot;
+        this.db = null;
+        this.collection = null;
+    }
+
+    async init() {
+        // Get database connection
+        this.db = this.bot.db;
+        this.collection = this.db.collection('my_module_data');
+        
+        // Create indexes
+        await this.collection.createIndex({ userId: 1 });
+    }
+
+    async saveUserData(userId, data) {
+        await this.collection.updateOne(
+            { userId },
+            { $set: { ...data, updatedAt: new Date() } },
+            { upsert: true }
+        );
+    }
+}
+```
+
+#### Message Hooks
+```javascript
+class HookModule {
+    constructor(bot) {
+        this.bot = bot;
+        this.messageHooks = {
+            'pre_process': this.onPreProcess.bind(this),
+            'post_process': this.onPostProcess.bind(this)
+        };
+    }
+
+    async onPreProcess(msg, text, bot) {
+        // Called before command processing
+        console.log('Pre-processing message:', text);
+    }
+
+    async onPostProcess(msg, text, bot) {
+        // Called after command processing
+        console.log('Post-processing message:', text);
+    }
+}
+```
+
+#### Command Aliases and Permissions
+```javascript
+{
+    name: 'download',
+    description: 'Download media from various platforms',
+    usage: '.download <url>',
+    aliases: ['dl', 'get'],
+    permissions: 'public', // 'public', 'admin', 'owner', or array of user IDs
+    execute: this.downloadCommand.bind(this)
+}
+```
+
+### Module Categories
+
+#### System Modules (Built-in)
+- **core** - Basic bot commands (ping, status, help)
+- **downloader** - Media downloading from various platforms
+- **sticker** - Sticker creation and management
+- **groups** - Group management features
+- **weather** - Weather information
+- **translator** - Text translation
+- **fileinfo** - File analysis and information
+- **gemini-vision** - AI image/video analysis
+- **server** - System monitoring
+- **rvo** - View-once media reveal
+
+#### Custom Modules
+- Upload .js files via `.lm` command
+- Hot-reload without restart
+- Full access to bot API
+- Database integration support
+
 ## 🚀 Deployment
 
 ### Using PM2
@@ -200,6 +351,7 @@ pm2 save
 ### Using Docker
 ```dockerfile
 FROM node:18-alpine
+RUN apk add --no-cache git python3 make g++
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
@@ -230,140 +382,45 @@ CMD ["npm", "start"]
    - Check if bot is added to the chat
    - Review Telegram API limits
 
+5. **Module loading failed**
+   - Check module syntax and structure
+   - Verify all required methods exist
+   - Review error logs for details
 
-## 🔧 Creating Modules
+## 📝 Module Development Guidelines
 
-### Basic Module Structure
-```javascript
-class ExampleModule {
-    constructor(bot) {
-        this.bot = bot;
-        this.name = 'example';
-        this.metadata = {
-            description: 'Example module for demonstration',
-            version: '1.0.0',
-            author: 'Your Name',
-            category: 'utility'
-        };
-        this.commands = [
-            {
-                name: 'example',
-                description: 'Example command',
-                usage: '.example <text>',
-                permissions: 'public',
-                ui: {
-                    processingText: '⏳ *Processing Example...*\n\n🔄 Working on your request...',
-                    errorText: '❌ *Example Failed*'
-                },
-                execute: this.exampleCommand.bind(this)
-            }
-        ];
-    }
+### Best Practices
+1. **Error Handling** - Always wrap command logic in try-catch
+2. **User Feedback** - Provide clear success/error messages
+3. **Permissions** - Set appropriate permission levels
+4. **Documentation** - Include clear descriptions and usage
+5. **Resource Cleanup** - Implement destroy() method for cleanup
 
-    async exampleCommand(msg, params, context) {
-        // Your command logic here
-        const result = `✅ *Example Result*\n\nInput: ${params.join(' ')}`;
-        return result; // This will replace the processing message
-    }
-
-    // Optional: Initialize module
-    async init() {
-        console.log('Example module initialized');
-    }
-
-    // Optional: Cleanup on unload
-    async destroy() {
-        console.log('Example module destroyed');
-    }
-}
-
-module.exports = ExampleModule;
-```
-
-### Database Integration in Modules
-```javascript
-class DatabaseModule {
-    constructor(bot) {
-        this.bot = bot;
-        this.db = null;
-        this.collection = null;
-    }
-
-    async init() {
-        // Get database connection
-        this.db = this.bot.db;
-        this.collection = this.db.collection('my_module_data');
-        
-        // Create indexes
-        await this.collection.createIndex({ userId: 1 });
-    }
-
-    async saveUserData(userId, data) {
-        await this.collection.updateOne(
-            { userId },
-            { $set: { ...data, updatedAt: new Date() } },
-            { upsert: true }
-        );
-    }
-
-    async getUserData(userId) {
-        return await this.collection.findOne({ userId });
-    }
-}
-```
-
-### Message Hooks
-```javascript
-class HookModule {
-    constructor(bot) {
-        this.bot = bot;
-        this.messageHooks = {
-            'all': this.onAllMessages.bind(this),
-            'media': this.onMediaMessages.bind(this)
-        };
-    }
-
-    async onAllMessages(msg, text) {
-        // Called for every message
-        console.log('Message received:', text);
-    }
-
-    async onMediaMessages(msg, text) {
-        // Called for media messages
-        if (this.hasMedia(msg)) {
-            console.log('Media message received');
-        }
-    }
-
-    hasMedia(msg) {
-        return !!(
-            msg.message?.imageMessage ||
-            msg.message?.videoMessage ||
-            msg.message?.audioMessage ||
-            msg.message?.documentMessage
-        );
-    }
-}
-```
-
-### Custom UI Messages
+### Command Structure
 ```javascript
 {
-    name: 'download',
-    ui: {
-        processingText: '📥 *Downloading...*\n\n⏳ Please wait while I fetch your file...',
-        errorText: '❌ *Download Failed*'
-    },
-    execute: async (msg, params, context) => {
-        // Your download logic
-        return '✅ *Download Complete*\n\nFile has been sent successfully!';
-    }
+    name: 'commandname',           // Required: Command name
+    description: 'Description',    // Required: What the command does
+    usage: '.cmd <params>',        // Required: How to use it
+    aliases: ['alias1', 'alias2'], // Optional: Alternative names
+    permissions: 'public',         // Required: Permission level
+    execute: this.method.bind(this) // Required: Function to execute
 }
 ```
 
-## 📝 License
+### Module Lifecycle
+1. **Constructor** - Initialize module properties
+2. **init()** - Optional setup (database, external connections)
+3. **Command Registration** - Automatic via commands array
+4. **Runtime** - Commands execute when called
+5. **destroy()** - Optional cleanup when unloading
 
-MIT License - see LICENSE file for details.
+## 📞 Support
+
+For support and questions:
+- Create an issue on GitHub
+- Join our Telegram group
+- Check the documentation
 
 ## 🤝 Contributing
 
@@ -373,13 +430,10 @@ MIT License - see LICENSE file for details.
 4. Test thoroughly
 5. Submit a pull request
 
-## 📞 Support
+## 📝 License
 
-For support and questions:
-- Create an issue on GitHub
-- Join our Telegram group
-- Check the documentation
+MIT License - see LICENSE file for details.
 
 ---
 
-**HyperWa Userbot** - Advanced WhatsApp automation with style! 🚀
+**HyperWa Userbot** - Advanced WhatsApp automation with modular architecture! 🚀

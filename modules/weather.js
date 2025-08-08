@@ -17,10 +17,6 @@ class WeatherModule {
                 description: 'Get current weather for a location',
                 usage: '.weather <location>',
                 permissions: 'public',
-                ui: {
-                    processingText: '🌤️ *Fetching Weather Data...*\n\n⏳ Getting current conditions...',
-                    errorText: '❌ *Weather Fetch Failed*'
-                },
                 execute: this.getCurrentWeather.bind(this)
             },
             {
@@ -28,10 +24,6 @@ class WeatherModule {
                 description: 'Get 5-day weather forecast',
                 usage: '.forecast <location>',
                 permissions: 'public',
-                ui: {
-                    processingText: '📅 *Fetching Weather Forecast...*\n\n⏳ Getting 5-day forecast...',
-                    errorText: '❌ *Forecast Fetch Failed*'
-                },
                 execute: this.getWeatherForecast.bind(this)
             },
             {
@@ -39,10 +31,6 @@ class WeatherModule {
                 description: 'Get weather alerts for a location',
                 usage: '.alerts <location>',
                 permissions: 'public',
-                ui: {
-                    processingText: '⚠️ *Checking Weather Alerts...*\n\n⏳ Scanning for warnings...',
-                    errorText: '❌ *Alert Check Failed*'
-                },
                 execute: this.getWeatherAlerts.bind(this)
             }
         ];
@@ -53,7 +41,9 @@ class WeatherModule {
 
     async getCurrentWeather(msg, params, context) {
         if (params.length === 0) {
-            return '❌ *Weather Information*\n\nPlease provide a location.\n\n💡 Usage: `.weather <location>`\n📝 Example: `.weather New York`';
+            return await context.bot.sendMessage(context.sender, {
+                text: '❌ *Weather Information*\n\nPlease provide a location.\n\n💡 Usage: `.weather <location>`\n📝 Example: `.weather New York`'
+            });
         }
 
         const location = params.join(' ');
@@ -80,7 +70,7 @@ class WeatherModule {
             const sunrise = new Date(data.sys.sunrise * 1000).toLocaleTimeString();
             const sunset = new Date(data.sys.sunset * 1000).toLocaleTimeString();
 
-            return `🌤️ *Weather in ${data.name}, ${data.sys.country}*\n\n` +
+            const weatherText = `🌤️ *Weather in ${data.name}, ${data.sys.country}*\n\n` +
                    `${icon} ${description.charAt(0).toUpperCase() + description.slice(1)}\n` +
                    `🌡️ Temperature: ${temp}°C (feels like ${feelsLike}°C)\n` +
                    `💧 Humidity: ${humidity}%\n` +
@@ -91,6 +81,9 @@ class WeatherModule {
                    `🌇 Sunset: ${sunset}\n\n` +
                    `⏰ ${new Date().toLocaleString()}`;
 
+            await context.bot.sendMessage(context.sender, {
+                text: weatherText
+            });
         } catch (error) {
             if (error.response?.status === 404) {
                 return `❌ *Location Not Found*\n\nCouldn't find weather data for "${location}".\nPlease check the spelling and try again.`;
@@ -98,7 +91,9 @@ class WeatherModule {
             if (error.response?.status === 401) {
                 return '❌ *API Key Required*\n\nWeather API key is not configured.\nPlease set up OpenWeatherMap API key in the module configuration.';
             }
-            throw new Error(`Weather fetch failed: ${error.message}`);
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ Weather fetch failed: ${error.message}`
+            });
         }
     }
 
@@ -155,10 +150,14 @@ class WeatherModule {
 
         } catch (error) {
             if (error.response?.status === 404) {
-                return `❌ *Location Not Found*\n\nCouldn't find weather data for "${location}".\nPlease check the spelling and try again.`;
+                await context.bot.sendMessage(context.sender, {
+                    text: `❌ *Location Not Found*\n\nCouldn't find weather data for "${location}".\nPlease check the spelling and try again.`
+                });
             }
             if (error.response?.status === 401) {
-                return '❌ *API Key Required*\n\nWeather API key is not configured.\nPlease set up OpenWeatherMap API key in the module configuration.';
+                await context.bot.sendMessage(context.sender, {
+                    text: '❌ *API Key Required*\n\nWeather API key is not configured.\nPlease set up OpenWeatherMap API key in the module configuration.'
+                });
             }
             throw new Error(`Forecast fetch failed: ${error.message}`);
         }

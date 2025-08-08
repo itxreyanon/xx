@@ -27,10 +27,6 @@ class GeminiVisionModule {
                 description: 'Describes the content of an image.',
                 usage: '.whatisthis (reply to an image)',
                 permissions: 'public',
-                ui: {
-                    processingText: '🖼️ *Analyzing Image...*\n\nLet me take a look...',
-                    errorText: '❌ *Image Analysis Failed*'
-                },
                 execute: this.identifyImage.bind(this)
             },
             {
@@ -38,10 +34,6 @@ class GeminiVisionModule {
                 description: 'Reads and extracts text from an image.',
                 usage: '.ocr (reply to an image)',
                 permissions: 'public',
-                ui: {
-                    processingText: '📄 *Reading Text...*\n\nScanning for words...',
-                    errorText: '❌ *OCR Failed*'
-                },
                 execute: this.extractText.bind(this)
             },
             {
@@ -49,10 +41,6 @@ class GeminiVisionModule {
                 description: 'Identifies a person, animal, plant, or landmark in an image.',
                 usage: '.identify (reply to an image)',
                 permissions: 'public',
-                ui: {
-                    processingText: '🧐 *Identifying...*\n\nSearching for details...',
-                    errorText: '❌ *Identification Failed*'
-                },
                 execute: this.identifyEntity.bind(this)
             },
             {
@@ -60,10 +48,6 @@ class GeminiVisionModule {
                 description: 'Creates a recipe from a picture of ingredients.',
                 usage: '.recipe (reply to an image of food)',
                 permissions: 'public',
-                ui: {
-                    processingText: '🧑‍🍳 *Creating Recipe...*\n\nThinking of something tasty...',
-                    errorText: '❌ *Recipe Creation Failed*'
-                },
                 execute: this.createRecipe.bind(this)
             },
             {
@@ -71,10 +55,6 @@ class GeminiVisionModule {
                 description: 'Generates a social media caption for an image.',
                 usage: '.caption (reply to an image)',
                 permissions: 'public',
-                ui: {
-                    processingText: '✍️ *Writing Caption...*\n\nGetting creative...',
-                    errorText: '❌ *Caption Generation Failed*'
-                },
                 execute: this.generateCaption.bind(this)
             },
             {
@@ -82,10 +62,6 @@ class GeminiVisionModule {
                 description: 'Explains the context and humor of a meme.',
                 usage: '.explainmeme (reply to a meme image)',
                 permissions: 'public',
-                ui: {
-                    processingText: '😂 *Explaining Meme...*\n\nLet me get the joke...',
-                    errorText: '❌ *Meme Explanation Failed*'
-                },
                 execute: this.explainMeme.bind(this)
             },
             {
@@ -93,10 +69,6 @@ class GeminiVisionModule {
                 description: 'Analyzes the art style of an image.',
                 usage: '.artstyle (reply to an artwork)',
                 permissions: 'public',
-                ui: {
-                    processingText: '🎨 *Analyzing Art Style...*\n\nConsulting my inner art critic...',
-                    errorText: '❌ *Art Analysis Failed*'
-                },
                 execute: this.analyzeArtStyle.bind(this)
             },
             {
@@ -104,10 +76,6 @@ class GeminiVisionModule {
                 description: 'Detects and lists objects in an image.',
                 usage: '.detect (reply to an image)',
                 permissions: 'public',
-                ui: {
-                    processingText: '🔍 *Detecting Objects...*\n\nIdentifying items...',
-                    errorText: '❌ *Object Detection Failed*'
-                },
                 execute: this.detectObjects.bind(this)
             },
             // --- VIDEO COMMANDS ---
@@ -116,10 +84,6 @@ class GeminiVisionModule {
                 description: 'Summarizes the content of a video.',
                 usage: '.summarizevideo (reply to a video)',
                 permissions: 'public',
-                ui: {
-                    processingText: '🎬 *Summarizing Video...*\n\nWatching and taking notes...',
-                    errorText: '❌ *Video Summary Failed*'
-                },
                 execute: this.summarizeVideo.bind(this)
             },
             {
@@ -127,10 +91,6 @@ class GeminiVisionModule {
                 description: 'Asks a specific question about a video.',
                 usage: '.askvideo <question> (reply to a video)',
                 permissions: 'public',
-                ui: {
-                    processingText: '🤔 *Analyzing Video for Answer...*\n\nPlease wait...',
-                    errorText: '❌ *Could not find an answer in the video.*'
-                },
                 execute: this.askVideo.bind(this)
             },
             {
@@ -138,10 +98,6 @@ class GeminiVisionModule {
                 description: 'Extracts key facts from a video.',
                 usage: '.videofacts (reply to a video)',
                 permissions: 'public',
-                ui: {
-                    processingText: '📈 *Extracting Facts...*\n\nAnalyzing video data...',
-                    errorText: '❌ *Fact Extraction Failed*'
-                },
                 execute: this.videoFacts.bind(this)
             },
             // --- UNIVERSAL MEDIA COMMANDS ---
@@ -150,10 +106,6 @@ class GeminiVisionModule {
                 description: 'Finds products in an image or video.',
                 usage: '.productfinder (reply to media)',
                 permissions: 'public',
-                ui: {
-                    processingText: '🛍️ *Finding Products...*\n\nScanning for items...',
-                    errorText: '❌ *Product identification failed*'
-                },
                 execute: this.productFinder.bind(this)
             },
             {
@@ -161,10 +113,6 @@ class GeminiVisionModule {
                 description: 'Describes the visual scenes in media.',
                 usage: '.scenedescriber (reply to media)',
                 permissions: 'public',
-                ui: {
-                    processingText: '👁️ *Describing Scene...*\n\nLooking closely...',
-                    errorText: '❌ *Scene description failed*'
-                },
                 execute: this.sceneDescriber.bind(this)
             }
         ];
@@ -251,14 +199,25 @@ class GeminiVisionModule {
     async identifyImage(msg, params, context) {
         const mediaData = this._getRepliedMediaMessage(msg);
         if (!mediaData || mediaData.mediaType !== 'image') {
-            return "Please reply to an image to use this command.";
+            return await context.bot.sendMessage(context.sender, {
+                text: "Please reply to an image to use this command."
+            });
         }
 
-        const imageBuffer = await this._getMediaBuffer(mediaData.mediaMessage, 'image');
-        const prompt = "Describe this image in detail. Be as descriptive as possible about the scene, objects, and any potential context.";
-        
-        const description = await this._runVisionModel(prompt, imageBuffer, "image/jpeg");
-        return `*🖼️ Image Analysis Result:*\n\n${description}`;
+        try {
+            const imageBuffer = await this._getMediaBuffer(mediaData.mediaMessage, 'image');
+            const prompt = "Describe this image in detail. Be as descriptive as possible about the scene, objects, and any potential context.";
+            
+            const description = await this._runVisionModel(prompt, imageBuffer, "image/jpeg");
+            
+            await context.bot.sendMessage(context.sender, {
+                text: `*🖼️ Image Analysis Result:*\n\n${description}`
+            });
+        } catch (error) {
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ Image analysis failed: ${error.message}`
+            });
+        }
     }
 
     async extractText(msg, params, context) {
