@@ -205,60 +205,6 @@ class DownloaderModule {
         return responseText;
     }
 
-/**
- * Executes the YouTube MP3 download command.
- * @param {object} msg - The message object from the bot.
- * @param {string[]} params - The parameters passed with the command.
- * @returns {Promise<string>} The formatted result string or empty if media is sent.
- */
-async downloadYouTubeMP3(msg, params) {
-    const url = params[0];
-    if (!url) return 'Please provide a YouTube URL.';
-
-    try {
-        const result = await this._fetchDownload('ytmp3', url);
-        const data = result.data;
-
-        const caption = `╭  ✦ YouTube MP3 Download ✦  ╮\n\n` +
-                       `*◦ Title:* ${data.title}\n` +
-                       `*◦ Author:* ${data.author}\n` +
-                       `*◦ Duration:* ${Math.floor(data.duration / 60)}:${(data.duration % 60).toString().padStart(2, '0')}\n` +
-                       `*◦ Quality:* ${data.download.quality}\n` +
-                       `*◦ Size:* ${data.download.size}`;
-
-        return this._downloadAndSendMedia(msg, data.download.url, caption, 'audio');
-    } catch (error) {
-        return `❌ Failed to download YouTube MP3: ${error.message}`;
-    }
-}
-
-/**
- * Executes the YouTube MP4 download command.
- * @param {object} msg - The message object from the bot.
- * @param {string[]} params - The parameters passed with the command.
- * @returns {Promise<string>} The formatted result string or empty if media is sent.
- */
-async downloadYouTubeMP4(msg, params) {
-    const url = params[0];
-    if (!url) return 'Please provide a YouTube URL.';
-
-    try {
-        const result = await this._fetchDownload('ytmp4', url);
-        const data = result.data;
-
-        const caption = `╭  ✦ YouTube MP4 Download ✦  ╮\n\n` +
-                       `*◦ Title:* ${data.title}\n` +
-                       `*◦ Author:* ${data.author}\n` +
-                       `*◦ Duration:* ${Math.floor(data.duration / 60)}:${(data.duration % 60).toString().padStart(2, '0')}\n` +
-                       `*◦ Quality:* ${data.download.quality}\n` +
-                       `*◦ Size:* ${data.download.size}`;
-
-        return this._downloadAndSendMedia(msg, data.download.url, caption, 'video');
-    } catch (error) {
-        return `❌ Failed to download YouTube MP4: ${error.message}`;
-    }
-}
-
     async downloadSoundCloud(msg, params) {
         const url = params[0];
         if (!url) return 'Please provide a SoundCloud URL.';
